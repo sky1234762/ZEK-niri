@@ -24,12 +24,45 @@ APPS_TOML="$CONF_DIR/templates-apps.toml"
 APPS_OFF="$APPS_TOML.disabled"
 ASSETS="/usr/share/noctalia/assets/templates"
 
-# 预设模式方案（文件名.json）
-PRESET_PALETTE="ZEKniri-preset"
+# 读取 ZEK-niri 配置：优先安装树里的 ZEK-niri.conf（仓库=唯一真源，靠 ~/.local/bin/ZEK-niri
+# 软链定位），找不到再回退用户副本 ~/.config/ZEKniri/ZEK-niri.conf。
+_resolve_conf() {
+    local launcher="$HOME/.local/bin/ZEK-niri" tree=""
+    if [ -L "$launcher" ]; then
+        tree="$(cd "$(dirname "$(readlink -f "$launcher" 2>/dev/null)")" 2>/dev/null && pwd)"
+        if [ -n "$tree" ] && [ -f "$tree/ZEK-niri.conf" ]; then
+            printf '%s' "$tree/ZEK-niri.conf"
+            return
+        fi
+    fi
+    printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/ZEKniri/ZEK-niri.conf"
+}
+CONF_FILE="$(_resolve_conf)"
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
+conf_get() {  # conf_get KEY DEFAULT
+    local key="$1" def="$2" line k v
+    [[ -f "$CONF_FILE" ]] || { printf '%s' "$def"; return; }
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+        line="${line%%[[:space:]]#*}"
+        [[ "$line" == *=* ]] || continue
+        k="$(trim "${line%%=*}")"
+        [[ "$k" == "$key" ]] || continue
+        v="$(trim "${line#*=}")"
+        printf '%s' "${v/#\~/$HOME}"
+        return
+    done < "$CONF_FILE"
+    printf '%s' "$def"
+}
 
-# noctalia模式方案（NAME可切换想要的取色器）
-NOCTALIA_SCHEME_SOURCE="wallpaper"
-NOCTALIA_SCHEME_NAME="soft"
+# 预设配色文件路径（多值时取第一个；noctalia 只支持一个 custom palette）
+PRESET_PALETTE_PATH="$(conf_get preset_palette "$HOME/.config/noctalia/palettes/ZEKniri-preset.json")"
+PRESET_PALETTE_PATH="$(trim "${PRESET_PALETTE_PATH%%,*}")"
+PRESET_PALETTE="$(basename "$PRESET_PALETTE_PATH" .json)"
+
+# noctalia模式取色器（source + name）
+NOCTALIA_SCHEME_SOURCE="$(conf_get noctalia_scheme_source "wallpaper")"
+NOCTALIA_SCHEME_NAME="$(conf_get noctalia_scheme_name "soft")"
 
 # 静默调用 noctalia IPC
 ns() { noctalia msg "$@" >/dev/null 2>&1 || true; }

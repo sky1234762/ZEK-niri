@@ -2,6 +2,7 @@
 
 import os
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 from zekniri.constants import (
@@ -10,18 +11,22 @@ from zekniri.constants import (
     PENDING_UPGRADE_ENV,
     PENDING_UPGRADE_MENU_ENV,
     PROJECT_NAME,
+    Colors,
 )
 from zekniri.core import (
     acquire_lock,
     check_path_occlusion,
+    ensure_cli_path,
     ensure_cli_symlink,
     get_env,
     init_logger,
     log_msg,
 )
+from zekniri.config import CONF_NAME, get_config
 from zekniri.deploy import (
     assets_present,
     deploy_assets,
+    deploy_runtime_conf,
     deploy_selected_configs,
     discover_config_items,
     render_completion_screen,
@@ -36,6 +41,7 @@ from zekniri.deps import (
 from zekniri.doctor import generate_bug_report, run_doctor, show_logs
 from zekniri.i18n import msg
 from zekniri.network import safe_git_pull
+from zekniri.palette import apply_palette, list_mappings
 from zekniri.state import (
     backup_configs,
     delete_backup,
@@ -95,6 +101,7 @@ def _phase_preflight_check(mode: str, chosen_configs: List[str], do_assets: bool
 
 def install_configs_workflow(mode: str = "full") -> bool:
     """Full execution pipeline for configs, dependencies, and assets."""
+    deploy_runtime_conf()
     if sys.stdin.isatty():
         chosen = run_master_component_menu(mode=mode)
         if not chosen:
@@ -142,6 +149,7 @@ def install_configs_workflow(mode: str = "full") -> bool:
 
 def offer_overwrite_upgrade(flag: str = "") -> bool:
     """Update flow: pull happened in the parent, now deploy the new code."""
+    deploy_runtime_conf()
     if flag == "--no-deploy":
         return True
     if not sys.stdin.isatty() or flag in ("--force", "--deploy"):
@@ -277,6 +285,50 @@ def main_menu_loop() -> None:
             sys.exit(0)
 
 
+# --- Show resolved config ----------------------------------------------------
+
+def announce_self_install(path_file: Optional[Path]) -> None:
+    """One-time notice that the ``ZEK-niri`` command is installed."""
+    env = get_env()
+    marker = env.state_dir / ".installed"
+    if marker.exists():
+        return
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("", encoding="utf-8")
+    except OSError:
+        return
+    link = env.home / ".local" / "bin" / CLI_CMD
+    if not (link.exists() or link.is_symlink()):
+        return
+    if path_file is not None:
+        print(msg("first_run_ready_path", str(path_file)))
+    else:
+        print(msg("first_run_ready"))
+
+
+def show_config() -> None:
+    """Print the resolved runtime config, with paths already expanded."""
+    env = get_env()
+    cfg = get_config()
+    print(f"{Colors.BOLD_WHITE}{msg('config_title')}{Colors.RESET}\n")
+    print(msg("config_file_line", str(env.repo_dir / CONF_NAME)))
+    rows = [
+        ("ask_language_each_start", "true" if cfg.ask_language_each_start else "false"),
+        ("wallpaper_dir", ", ".join(str(p) for p in cfg.wallpaper_dirs) if cfg.wallpaper_dirs else "(auto: <Pictures>/wallpaper)"),
+        ("preset_palette", ", ".join(str(p) for p in cfg.preset_palettes)),
+        ("preset_palette_name", ", ".join(cfg.preset_palette_names)),
+        ("wallpaper_palette", ", ".join(f"{w.name}->{p.stem}" for w, p in cfg.wallpaper_palettes) if cfg.wallpaper_palettes else "(none)"),
+        ("log_path", str(cfg.log_path) if cfg.log_path else str(env.state_dir / "install.log")),
+        ("noctalia_scheme_source", cfg.noctalia_scheme_source),
+        ("noctalia_scheme_name", cfg.noctalia_scheme_name),
+    ]
+    width = max(len(key) for key, _ in rows)
+    for key, value in rows:
+        print(f"  {Colors.CYAN}{key.ljust(width)}{Colors.RESET} = {value}")
+    print(f"\n{Colors.DIM}{msg('config_hint')}{Colors.RESET}")
+
+
 # --- Dispatcher --------------------------------------------------------------
 
 def print_help(file=None) -> None:
@@ -408,6 +460,25 @@ def _cmd_update(sub_args: List[str]) -> int:
     return 0
 
 
+def _cmd_show_config(sub_args: List[str]) -> int:
+    if sub_args:
+        exit_usage(f"{CLI_CMD} show-config")
+    show_config()
+    return 0
+
+
+def _cmd_palette(sub_args: List[str]) -> int:
+    usage = f"{CLI_CMD} palette [list|<wallpaper>]"
+    if sub_args and sub_args[0] in ("list", "ls"):
+        if len(sub_args) > 1:
+            exit_usage(usage)
+        list_mappings()
+        return 0
+    if len(sub_args) > 1:
+        exit_usage(usage)
+    return 0 if apply_palette(sub_args[0] if sub_args else None) else 1
+
+
 def _cmd_help(sub_args: List[str]) -> int:
     if sub_args:
         exit_usage(f"{CLI_CMD} help")
@@ -431,6 +502,9 @@ COMMANDS = {
     "apps":      (_cmd_apps,      f"{CLI_CMD} apps"),
     "recommended": (_cmd_apps,    f"{CLI_CMD} apps"),
     "assets":    (_cmd_assets,    f"{CLI_CMD} assets"),
+    "show-config": (_cmd_show_config, f"{CLI_CMD} show-config"),
+    "config":    (_cmd_show_config, f"{CLI_CMD} show-config"),
+    "palette":   (_cmd_palette,   f"{CLI_CMD} palette [list|<wallpaper>]"),
     "bug":       (_cmd_bug,       f"{CLI_CMD} bug"),
     "report":    (_cmd_bug,       f"{CLI_CMD} bug"),
     "test":      (_cmd_test,      f"{CLI_CMD} test"),
@@ -451,6 +525,7 @@ def main() -> None:
     init_logger()
     get_env()
     ensure_cli_symlink()
+    announce_self_install(ensure_cli_path())
 
     pending_flag = os.environ.pop(PENDING_UPGRADE_ENV, None)
     pending_from_menu = os.environ.pop(PENDING_UPGRADE_MENU_ENV, None)

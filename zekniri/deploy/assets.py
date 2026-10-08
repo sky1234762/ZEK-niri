@@ -10,6 +10,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from zekniri.config import get_config
 from zekniri.core import get_env, get_pics_dir, log_msg
 
 _WALLPAPER_SRC = "wallpapers"
@@ -27,8 +28,17 @@ def wallpaper_source() -> Path:
     return get_env().assets_src / _WALLPAPER_SRC
 
 
+def wallpaper_destinations() -> tuple[Path, ...]:
+    """Every configured wallpaper destination (auto ``<Pictures>/wallpaper`` if none)."""
+    dirs = get_config().wallpaper_dirs
+    if dirs:
+        return dirs
+    return (get_pics_dir() / _WALLPAPER_DIR,)
+
+
 def wallpaper_destination() -> Path:
-    return get_pics_dir() / _WALLPAPER_DIR
+    """Primary wallpaper destination (first configured dir)."""
+    return wallpaper_destinations()[0]
 
 
 def assets_present() -> bool:
@@ -38,26 +48,27 @@ def assets_present() -> bool:
 
 
 def deploy_assets() -> AssetDeployResult:
-    """No-clobber sync of ``assets/wallpapers/`` into ``<Pictures>/wallpaper``."""
+    """No-clobber sync of ``assets/wallpapers/`` into every configured dir."""
     src_root = wallpaper_source()
-    dest_root = wallpaper_destination()
-    result = AssetDeployResult(destination=str(dest_root))
+    dests = wallpaper_destinations()
+    result = AssetDeployResult(destination=", ".join(str(d) for d in dests))
     if not assets_present():
         log_msg("INFO", "No wallpapers shipped; skipping")
         return result
 
-    dest_root.mkdir(parents=True, exist_ok=True)
-    for src in src_root.rglob("*"):
-        if src.is_dir() or src.name.startswith("."):
-            continue
-        rel = src.relative_to(src_root)
-        target = dest_root / rel
-        if target.exists():
-            result.skipped += 1
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, target)
-        result.copied += 1
+    for dest_root in dests:
+        dest_root.mkdir(parents=True, exist_ok=True)
+        for src in src_root.rglob("*"):
+            if src.is_dir() or src.name.startswith("."):
+                continue
+            rel = src.relative_to(src_root)
+            target = dest_root / rel
+            if target.exists():
+                result.skipped += 1
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+            result.copied += 1
 
     log_msg("INFO", f"Wallpapers deployed: {result.copied} copied, {result.skipped} kept")
     return result

@@ -40,3 +40,23 @@ interrupted tree) and prints one actionable line instead of a traceback.
 ran. In `system` mode this is a no-op: the package owns the entry point. A stale
 user link that shadows a system package is warned about by
 `check_path_occlusion()` at the top of `update` and `doctor`.
+
+## First-run self-install (PATH)
+
+So a plain `ZEK-niri` works in the next terminal, `main()` runs two idempotent
+steps before dispatch (`zekniri/core.py`):
+
+1. `ensure_cli_symlink()` — create/keep `~/.local/bin/<CLI_CMD>` → `install.sh`.
+2. `ensure_cli_path()` — if `~/.local/bin` is neither on the live `PATH` nor
+   already in the shell's startup file, append a marked block:
+   - fish → `~/.config/fish/conf.d/zekniri-path.fish` (`fish_add_path -g $HOME/.local/bin`)
+   - zsh → `~/.zshrc`; bash → `~/.bashrc`; other → `~/.profile`
+     (`export PATH="$HOME/.local/bin:$PATH"`)
+
+   The block is guarded by `# >>> ZEKniri: ~/.local/bin on PATH >>>`, so it is
+   never written twice. `system` mode is skipped.
+
+`announce_self_install()` prints a one-time notice (marker
+`~/.local/state/<PROJECT_NAME>/.installed`). `cli_path_status()` reports
+`active` / `pending` / `missing`, backing the doctor check (`doctor_cli_path` /
+`doctor_cli_path_pending` / `doctor_cli_path_missing`).
