@@ -470,15 +470,17 @@ def press_any_key() -> None:
 
 
 def select_language() -> str:
-    """First-run language page, shown once before the control panel.
+    """Language page, shown before the control panel when appropriate.
 
-    Skipped on later runs when a choice is already stored. The previously
+    Skipped on later runs when a choice is stored, unless
+    ``ask_language_each_start`` is enabled in ``ZEK-niri.conf``. The previously
     chosen language is preselected; Enter confirms. Persists the choice under
     ``~/.config/<PROJECT_NAME>/language``. Returns the selected code.
     """
     from zekniri import i18n
+    from zekniri.config import get_config
 
-    if i18n.has_stored_language():
+    if i18n.has_stored_language() and not get_config().ask_language_each_start:
         return i18n.get_language()
 
     options = [("简体中文", "zh"), ("English", "en")]

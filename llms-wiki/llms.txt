@@ -13,6 +13,7 @@ demand. Source code is always the final truth; this wiki mirrors it.
 - [overview](overview.md): the model, the two axes, the deploy verb
 - [file-preservation](file-preservation.md): Dunder `__custom__` vs manifest `preserve` (two mechanisms, on purpose)
 - [manifest-schema](manifest-schema.md): `.module.toml` + `.optional-apps.toml`
+- [configuration](configuration.md): engine-level `ZEK-niri.conf` (language, wallpapers, log, noctalia picker)
 - [install-modes](install-modes.md): repo vs cache vs system, update paths
 - [testing](testing.md): TempEnv isolation, test shapes
 

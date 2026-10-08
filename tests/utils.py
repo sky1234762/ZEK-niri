@@ -42,10 +42,12 @@ class TempEnv:
         core._LOG_FILE = None
         core._PICS_DIR_CACHE = None
 
+        import zekniri.config as _config
         import zekniri.deploy.deploy as _deploy_core
         import zekniri.deploy.manifest as _deploy_manifest
         import zekniri.deps as _deps
         import zekniri.i18n as _i18n
+        _config._CONFIG = None
         _deploy_core._CONFIG_ITEMS_CACHE = []
         _deploy_manifest._MANIFEST_CACHE = None
         _deps._PACMAN_INSTALLED_CACHE = None
@@ -67,5 +69,7 @@ class TempEnv:
             else:
                 os.environ[key] = val
         core._ENV = None
+        import zekniri.config as _config
+        _config._CONFIG = None
         self._tmp.cleanup()
         return False

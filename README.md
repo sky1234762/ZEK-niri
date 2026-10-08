@@ -18,11 +18,12 @@
 
 ## 更改的内容
 
-- **一键切换方案** — 得益于高度友好的waybar,你可以点击调色板模块一键切换预设或soft取色器模式！
+- **一键切换方案** — 得益于高度友好的waybar,你可以点击调色板模块一键切换预设或取色器模式！
 - **waybar魔改** — 是的没错，这个waybar有动画！不仅有动画，还能快捷调用你的noctalia设置和命令
-- **终端与桌面** — fastfetch独特样式，Kitty 光标轨迹，还有更通透的窗口与物理动画
-- **方案同步** — 想要让你的终端和cava跟着模式一起变？点击模块就好了！
-- **多款预设和取色器** — 一页一页，这个事没完成的功能，还是等更新罢（无慈悲）
+- **终端与桌面** — fastfetch独特样式，Kitty 光标轨迹，还有更通透的窗口与物理动画...什么，你说只有这些吗？等我的更新！
+- **方案同步** — 想要让你的终端和cava跟着模式一起变？没有问题，点击模块就好了！
+- **可自定义配置文件** — 配置文件现已加入，你可以自己决定使用哪个取色器让你的桌面更好看。当然，你还可以把日志输出路径改到更显眼的位置，方便定位程序问题
+- **多款预设与壁纸** — ...好吧，这个问题有些棘手，我尽量解决（悲）
 
 ## 配置结构
 
@@ -41,7 +42,7 @@ ZEKniri/
 │   ├── fastfetch/          终端信息
 │   ├── kitty/              kitty终端
 │   ├── niri/               窗口管理器（包含动画和
-│   ├── noctalia/           桌面壳与调色模板
+│   ├── noctalia/           桌面shell与调色模板（PS：正在测试多预设切换，目前无法使用）
 │   └── waybar/             状态栏（含 scripts/）
 ├── assets/wallpapers/       壁纸，部署到 ~/图片/wallpaper
 ├── logo/title               启动页标题
@@ -53,8 +54,8 @@ ZEKniri/
 ```bash
 git clone https://github.com/sky1234762/ZEK-niri.git ~/ZEKniri
 cd ~/ZEKniri
-./install.sh              # 交互面板
-./install.sh install full # 或直接部署（含依赖检查与壁纸）
+./install.sh              
+./install.sh install full 
 ```
 
 ## 安装完后的界面
@@ -87,10 +88,10 @@ ZEK-niri test                      沙箱部署（开发者）
 ```
 
 ## 致谢与主页
-- QQ：`1846318834` QQ(备用): `3456599262`
-- [bilibili/Zer05ky凌空-ZEK](https://space.bilibili.com/575667990?spm_id_from=333.1007.0.0) 我的b站主页
+- QQ：`1846318834` QQ(备用): `3456599262` 
+- [bilibili/Zer05ky凌空-ZEK](https://space.bilibili.com/575667990/upload/video) 我的b站主页
 - [bilibili/Zer05ky](https://space.bilibili.com/1168962291?spm_id_from=333.1387.follow.user_card.click) 我的直播间
 - [SHORiN-KiWATA/shorin-arch-setup](https://github.com/SHORiN-KiWATA/shorin-arch-setup)  waybar配置来源
 - [ech678/Nyxniri](https://github.com/ech678/Nyxuri) 安装程序的灵感与借鉴来源
 - [KaguyaMao/Tsukuyomi](https://github.com/KaguyaMao/Tsukuyomi) 使用的agent
- 
+- bug与问题反馈群号: `1128905094`

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, List
 
 from zekniri.constants import CLI_CMD, PROJECT_NAME, Colors
-from zekniri.core import get_env, is_cli_symlink
+from zekniri.core import cli_path_status, get_env, is_cli_symlink
 from zekniri.i18n import msg
 from zekniri.deploy.manifest import discover_manifest_apps
 
@@ -90,6 +90,19 @@ def _check_cli_symlink(env) -> None:
         _report(is_cli_symlink(link), "doctor_cli_link")
     else:
         _report(False, "doctor_cli_missing")
+
+
+@register
+def _check_cli_path(env) -> None:
+    if env.run_mode == "system":
+        return
+    status = cli_path_status()
+    if status == "active":
+        _report(True, "doctor_cli_path")
+    elif status == "pending":
+        _report(True, "doctor_cli_path_pending")
+    else:
+        _report(False, "doctor_cli_path_missing")
 
 
 def run_doctor() -> None:

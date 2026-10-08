@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from zekniri.constants import CLI_CMD, Colors
+from zekniri.config import CONF_NAME, get_config
 from zekniri.core import get_env, log_msg
 from zekniri.i18n import msg
 from zekniri.tui import read_key, show_logo, raw_input_mode, _drain_pending, enter_alt_screen
@@ -50,6 +51,36 @@ def _deploy_state_files(app: str, src: Path, state_files: List[str]) -> None:
         shutil.copy2(src_file, dest_file)
         print(msg("log_deploy_state_item", app, rel))
         log_msg("INFO", f"Deployed state file ~/.local/state/{app}/{rel}")
+
+
+def deploy_runtime_conf() -> bool:
+    """Refresh the fallback ``~/.config/<PROJECT_NAME>/ZEK-niri.conf``.
+
+    The install-tree ``ZEK-niri.conf`` is the single source of truth; this is a
+    copy for deployed shell helpers that cannot locate the install tree. It is
+    rewritten whenever it differs from the source.
+    """
+    env = get_env()
+    src = env.repo_dir / CONF_NAME
+    dest = env.nyx_dir / CONF_NAME
+    if not src.is_file():
+        return False
+    try:
+        if dest.is_file() and dest.read_bytes() == src.read_bytes():
+            return False
+    except OSError:
+        pass
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    log_msg("INFO", f"Refreshed fallback config {dest}")
+    return True
+
+
+def _warn_missing_preset() -> None:
+    """Warn only when a preset's noctalia dir exists but the file is absent."""
+    for palette in get_config().preset_palettes:
+        if palette.parent.is_dir() and not palette.is_file():
+            log_msg("WARN", f"Configured preset palette missing: {palette}")
 
 
 def _phase_atomic_deployment(
@@ -104,6 +135,7 @@ def _phase_atomic_deployment(
         print(msg("log_deploy_config_item", item))
         log_msg("INFO", f"Deployed config ~/.config/{item}")
 
+    _warn_missing_preset()
     return failed_items
 
 

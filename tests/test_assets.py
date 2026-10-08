@@ -1,5 +1,6 @@
 import unittest
 
+import zekniri.config as config
 from tests.utils import TempEnv
 from zekniri.deploy.assets import assets_present, deploy_assets
 
@@ -33,6 +34,23 @@ class AssetsTest(unittest.TestCase):
             self.assertEqual((dest / "a.jpg").read_text(encoding="utf-8"), "mine")
             self.assertEqual(result.skipped, 1)
             self.assertEqual(result.copied, 1)
+
+    def test_deploys_to_every_configured_dir(self):
+        with TempEnv() as t:
+            self._seed(t)
+            (t.home / "ZEK-niri.conf").write_text(
+                "wallpaper_dir = ~/wp1, ~/wp2\n", encoding="utf-8"
+            )
+            config.reload_config()
+            result = deploy_assets()
+            self.assertEqual(result.copied, 4)  # 2 files × 2 dirs
+            for dest in (t.home / "wp1", t.home / "wp2"):
+                self.assertTrue((dest / "a.jpg").is_file())
+                self.assertTrue((dest / "b.png").is_file())
+            # a rerun keeps everything
+            again = deploy_assets()
+            self.assertEqual(again.copied, 0)
+            self.assertEqual(again.skipped, 4)
 
     def test_missing_wallpapers_is_a_noop(self):
         with TempEnv() as t:

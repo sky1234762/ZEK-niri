@@ -283,9 +283,12 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 def init_logger() -> None:
     """Create the state directory and truncate the log to the last 800 lines."""
     global _LOG_FILE
+    from zekniri.config import get_config
+
     env = get_env()
     env.state_dir.mkdir(parents=True, exist_ok=True)
-    _LOG_FILE = env.state_dir / "install.log"
+    _LOG_FILE = get_config().log_path or (env.state_dir / "install.log")
+    _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     if _LOG_FILE.is_file():
         try:
@@ -438,6 +441,79 @@ def ensure_cli_symlink() -> None:
             target_bin.unlink(missing_ok=True)
     except Exception:
         pass
+
+
+# --- PATH registration -------------------------------------------------------
+
+_CLI_PATH_MARKER = "# >>> ZEKniri: ~/.local/bin on PATH >>>"
+_CLI_PATH_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"'
+_CLI_PATH_FISH = "fish_add_path -g $HOME/.local/bin"
+
+
+def _shell_name() -> str:
+    return Path(os.environ.get("SHELL", "")).name or "sh"
+
+
+def _cli_path_target() -> Path:
+    """Startup file that puts ~/.local/bin on PATH for the user's shell."""
+    home = get_env().home
+    shell = _shell_name()
+    if shell == "fish":
+        return home / ".config" / "fish" / "conf.d" / "zekniri-path.fish"
+    if shell == "zsh":
+        return home / ".zshrc"
+    if shell == "bash":
+        return home / ".bashrc"
+    return home / ".profile"
+
+
+def ensure_cli_path() -> Optional[Path]:
+    """Persist ~/.local/bin on PATH for the user's shell (idempotent).
+
+    Writes only when the directory is absent from both the live PATH and the
+    shell's startup file. System installs own their entry point, so they are
+    skipped. Returns the file written, or None when nothing changed.
+    """
+    env = get_env()
+    if env.run_mode == "system":
+        return None
+
+    if str(env.home / ".local" / "bin") in os.environ.get("PATH", "").split(os.pathsep):
+        return None
+
+    target = _cli_path_target()
+    try:
+        existing = target.read_text(encoding="utf-8") if target.is_file() else ""
+    except OSError:
+        existing = ""
+    if ".local/bin" in existing or _CLI_PATH_MARKER in existing:
+        return None
+
+    line = _CLI_PATH_FISH if _shell_name() == "fish" else _CLI_PATH_EXPORT
+    block = f"\n{_CLI_PATH_MARKER}\n{line}\n"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "a", encoding="utf-8") as f:
+            f.write(block)
+    except OSError:
+        return None
+    log_msg("INFO", f"Added ~/.local/bin to PATH via {target}")
+    return target
+
+
+def cli_path_status() -> str:
+    """"active" when on the live PATH, "pending" when persisted, else "missing"."""
+    env = get_env()
+    bin_dir = str(env.home / ".local" / "bin")
+    if bin_dir in os.environ.get("PATH", "").split(os.pathsep):
+        return "active"
+    target = _cli_path_target()
+    try:
+        if target.is_file() and ".local/bin" in target.read_text(encoding="utf-8"):
+            return "pending"
+    except OSError:
+        pass
+    return "missing"
 
 
 def check_path_occlusion() -> bool:

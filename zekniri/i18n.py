@@ -106,6 +106,8 @@ TRANSLATIONS = {
             "  list                       list snapshots\n"
             "  deps [core|apps]           install packages\n"
             "  assets                     deploy wallpapers\n"
+            "  show-config                show resolved runtime config\n"
+            "  palette [list|<wp>]        apply the wallpaper's palette\n"
             "  doctor                     self-check\n"
             "  bug                        logs\n"
             "  uninstall [standard|keep-data|purge]\n"
@@ -113,6 +115,16 @@ TRANSLATIONS = {
             "  help\n\n"
             "Run without a command for the interactive panel."
         ),
+        "config_title": "Resolved runtime configuration",
+        "config_file_line": "source: {0}",
+        "config_hint": "Edit the user file to override; changes apply on the next run.",
+        "palette_list_title": "Wallpaper → palette mapping",
+        "palette_list_empty": "No wallpaper_palette mapping configured.",
+        "palette_no_noctalia": "noctalia command not found.",
+        "palette_no_wallpaper": "Could not read noctalia's current wallpaper.",
+        "palette_unmapped": "No palette mapped for wallpaper {0}.",
+        "palette_applied": "[✓] Applied palette {1} (wallpaper {0})",
+        "palette_apply_failed": "[!] Failed to apply palette {0}.",
         # menu
         "menu_title": "Control panel",
         "menu_hint": "[↑↓] move  [Enter] select  [q] quit",
@@ -246,7 +258,12 @@ TRANSLATIONS = {
         "doctor_cli_link": "CLI symlink healthy",
         "doctor_cli_missing": "CLI symlink not found (~/.local/bin)",
         "doctor_cli_system": "system package owns the CLI",
+        "doctor_cli_path": "~/.local/bin is on PATH",
+        "doctor_cli_path_pending": "~/.local/bin configured (reopen terminal to activate)",
+        "doctor_cli_path_missing": "~/.local/bin is not on PATH",
         "path_occlusion_warn": "[!] ~/.local/bin shadows the system package; the system install is not being used.",
+        "first_run_ready": "[✓] ZEK-niri is installed; type `ZEK-niri` to run it.",
+        "first_run_ready_path": "[✓] ZEK-niri installed; ~/.local/bin added to PATH via {0}. Reopen your terminal, then type `ZEK-niri`.",
         "bug_report_written": "Report written to {0}",
         "log_title": "Log: {0}",
         "log_empty": "No log entries yet.",
@@ -274,6 +291,8 @@ TRANSLATIONS = {
             "  list                       查看所有存档\n"
             "  deps [core|apps]           安装软件包\n"
             "  assets                     部署壁纸\n"
+            "  show-config                查看解析后的运行配置\n"
+            "  palette [list|<壁纸>]      应用壁纸对应的配色\n"
             "  doctor                     自检\n"
             "  bug                        日志\n"
             "  uninstall [standard|keep-data|purge]\n"
@@ -281,6 +300,16 @@ TRANSLATIONS = {
             "  help\n\n"
             "不带命令运行进入交互面板。"
         ),
+        "config_title": "解析后的运行配置",
+        "config_file_line": "来源：{0}",
+        "config_hint": "修改用户文件即可覆盖；下次运行生效。",
+        "palette_list_title": "壁纸 → 配色映射",
+        "palette_list_empty": "未配置 wallpaper_palette 映射。",
+        "palette_no_noctalia": "未找到 noctalia 命令。",
+        "palette_no_wallpaper": "读不到 noctalia 当前壁纸。",
+        "palette_unmapped": "壁纸 {0} 没有对应配色。",
+        "palette_applied": "[✓] 已应用配色 {1}（壁纸 {0}）",
+        "palette_apply_failed": "[!] 应用配色 {0} 失败。",
         "menu_title": "控制面板",
         "menu_hint": "[↑↓] 移动  [Enter] 选择  [q] 退出",
         "menu_group_deploy": "部署",
@@ -405,7 +434,12 @@ TRANSLATIONS = {
         "doctor_cli_link": "CLI 软链正常",
         "doctor_cli_missing": "未找到 CLI 软链（~/.local/bin）",
         "doctor_cli_system": "由系统包提供 CLI",
+        "doctor_cli_path": "~/.local/bin 已在 PATH 中",
+        "doctor_cli_path_pending": "~/.local/bin 已配置（重开终端后生效）",
+        "doctor_cli_path_missing": "~/.local/bin 不在 PATH 中",
         "path_occlusion_warn": "[!] ~/.local/bin 遮蔽了系统包，实际未使用系统安装。",
+        "first_run_ready": "[✓] ZEK-niri 已安装，输入 ZEK-niri 即可运行。",
+        "first_run_ready_path": "[✓] ZEK-niri 已安装；已把 ~/.local/bin 加入 PATH（{0}）。重开终端后输入 ZEK-niri 即可运行。",
         "bug_report_written": "报告已写入 {0}",
         "log_title": "日志：{0}",
         "log_empty": "暂无日志。",
