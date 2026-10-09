@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import zekniri.config as config
 from tests.utils import TempEnv
@@ -30,26 +31,34 @@ class ConfigTest(unittest.TestCase):
             self._write(
                 t,
                 "ask_language_each_start = yes\n"
-                "wallpaper_dir = ~/wall\n"
                 "log_path = $HOME/z.log\n"
-                "preset_palette = ~/p/My.json\n",
+                "preset_palette = ~/wp/a.jpg = ~/p/A.json\n"
+                "preset_palette = ~/p/Default.json\n",
             )
             config.reload_config()
             cfg = config.get_config()
             self.assertTrue(cfg.ask_language_each_start)
-            self.assertEqual(cfg.wallpaper_dir, t.home / "wall")
             self.assertEqual(cfg.log_path, t.home / "z.log")
-            self.assertEqual(cfg.preset_palette, t.home / "p" / "My.json")
-            self.assertEqual(cfg.preset_palette_name, "My")
+            self.assertEqual(
+                cfg.wallpaper_palettes,
+                ((t.home / "wp" / "a.jpg", t.home / "p" / "A.json"),),
+            )
+            self.assertEqual(cfg.default_palettes, (t.home / "p" / "Default.json",))
+            self.assertEqual(cfg.preset_palette, t.home / "p" / "Default.json")
+            # deploy dir is derived from the mapped wallpaper's parent
+            self.assertEqual(cfg.wallpaper_dirs, (t.home / "wp",))
 
-    def test_user_copy_does_not_shadow_repo(self):
+    def test_user_copy_overrides_repo(self):
         with TempEnv() as t:
-            self._write(t, "noctalia_scheme_name = fromrepo\nwallpaper_dir = ~/a\n")
+            self._write(t, "noctalia_scheme_name = fromrepo\npreset_palette = ~/wp/a.jpg = ~/repo.json\n")
             self._write(t, "noctalia_scheme_name = fromuser\n", user=True)
             config.reload_config()
             cfg = config.get_config()
-            self.assertEqual(cfg.noctalia_scheme_name, "fromrepo")
-            self.assertEqual(cfg.wallpaper_dir, t.home / "a")
+            self.assertEqual(cfg.noctalia_scheme_name, "fromuser")
+            self.assertEqual(
+                cfg.wallpaper_palettes,
+                ((t.home / "wp" / "a.jpg", t.home / "repo.json"),),
+            )
 
     def test_comments_blank_lines_and_inline(self):
         with TempEnv() as t:
@@ -67,34 +76,65 @@ class ConfigTest(unittest.TestCase):
                 config.reload_config()
                 self.assertEqual(config.get_config().ask_language_each_start, expected, raw)
 
-    def test_multiple_paths(self):
+    def test_multiple_wallpaper_palette_pairs(self):
         with TempEnv() as t:
             self._write(
                 t,
-                "wallpaper_dir = ~/wp1, ~/wp2 ; ~/wp3\n"
-                "preset_palette = ~/p/One.json, ~/p/Two.json\n",
+                "preset_palette = ~/wp1/a.jpg = ~/p/One.json\n"
+                "preset_palette = ~/wp2/b.jpg = ~/p/Two.json\n"
+                "preset_palette = ~/p/Fallback.json, ~/p/Other.json\n",
             )
             config.reload_config()
             cfg = config.get_config()
-            self.assertEqual(cfg.wallpaper_dirs, (t.home / "wp1", t.home / "wp2", t.home / "wp3"))
-            self.assertEqual(cfg.wallpaper_dir, t.home / "wp1")
-            self.assertEqual(cfg.preset_palettes, (t.home / "p" / "One.json", t.home / "p" / "Two.json"))
-            self.assertEqual(cfg.preset_palette, t.home / "p" / "One.json")
-            self.assertEqual(cfg.preset_palette_name, "One")
-            self.assertEqual(cfg.preset_palette_names, ("One", "Two"))
+            self.assertEqual(cfg.wallpaper_dirs, (t.home / "wp1", t.home / "wp2"))
+            self.assertEqual(cfg.palette_for(t.home / "wp1" / "a.jpg"), t.home / "p" / "One.json")
+            self.assertEqual(cfg.palette_for(t.home / "wp2" / "b.jpg"), t.home / "p" / "Two.json")
+            self.assertEqual(
+                cfg.default_palettes, (t.home / "p" / "Fallback.json", t.home / "p" / "Other.json")
+            )
+            self.assertEqual(cfg.preset_palette, t.home / "p" / "Fallback.json")
+            self.assertEqual(cfg.preset_palette_names, ("Fallback", "Other"))
 
-    def test_user_copy_ignored_for_lists(self):
+    def test_waybar_colors_mapping(self):
+        with TempEnv() as t:
+            self._write(
+                t,
+                "waybar_colors = ~/wp/a.jpg = ~/wb/a.css\n"
+                "waybar_colors = ~/wp/b.jpg = ~/wb/b.css\n",
+            )
+            config.reload_config()
+            cfg = config.get_config()
+            self.assertEqual(
+                cfg.waybar_colors,
+                (
+                    (t.home / "wp" / "a.jpg", t.home / "wb" / "a.css"),
+                    (t.home / "wp" / "b.jpg", t.home / "wb" / "b.css"),
+                ),
+            )
+            self.assertEqual(cfg.waybar_colors_for(t.home / "wp" / "a.jpg"), t.home / "wb" / "a.css")
+            self.assertIsNone(cfg.waybar_colors_for(Path("/elsewhere/z.jpg")))
+
+    def test_user_copy_replaces_repo_list(self):
         with TempEnv() as t:
             (t.home / "ZEK-niri.conf").write_text(
-                "wallpaper_palette = ~/a.jpg = ~/a.json\n", encoding="utf-8"
+                "preset_palette = ~/a.jpg = ~/a.json\n", encoding="utf-8"
             )
             user = t.home / ".config" / "ZEKniri" / "ZEK-niri.conf"
             user.parent.mkdir(parents=True, exist_ok=True)
-            user.write_text("wallpaper_palette = ~/b.jpg = ~/b.json\n", encoding="utf-8")
+            user.write_text("preset_palette = ~/b.jpg = ~/b.json\n", encoding="utf-8")
             config.reload_config()
             self.assertEqual(
                 config.get_config().wallpaper_palettes,
-                ((t.home / "a.jpg", t.home / "a.json"),),
+                ((t.home / "b.jpg", t.home / "b.json"),),
+            )
+
+    def test_wallpaper_palette_alias(self):
+        with TempEnv() as t:
+            self._write(t, "wallpaper_palette = ~/wp/a.jpg = ~/p/A.json\n")
+            config.reload_config()
+            self.assertEqual(
+                config.get_config().wallpaper_palettes,
+                ((t.home / "wp" / "a.jpg", t.home / "p" / "A.json"),),
             )
 
     def test_user_conf_path(self):

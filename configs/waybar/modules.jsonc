@@ -366,9 +366,10 @@
  "custom/wallpapers":{
     "format":"󰸉",
     "tooltip-format":"左键：打开壁纸面板\n右键：随机切换壁纸\n中键：下一张壁纸",
+    // 切换后顺带套用当前壁纸对应的配色（ZEK-niri watch 也在后台监听，这里是即时触发）
     "on-click":"noctalia msg panel-toggle wallpaper",
-    "on-click-right":"noctalia msg wallpaper-random",
-    "on-click-middle":"noctalia msg wallpaper-next"
+    "on-click-right":"noctalia msg wallpaper-random; ZEK-niri palette --wait",
+    "on-click-middle":"noctalia msg wallpaper-next; ZEK-niri palette --wait"
  },
  // 常用命令
  "custom/actions":{

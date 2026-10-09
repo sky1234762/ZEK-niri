@@ -1,11 +1,20 @@
 """Runtime configuration for the engine itself: ``ZEK-niri.conf``.
 
 A flat ``key = value`` file (``#`` full-line comments, blank lines ignored,
-``~`` / ``$HOME`` expanded). The repo/install root is the **single source of
-truth** — the engine and the deployed shell helpers both read it. A copy at
-``~/.config/<PROJECT_NAME>/ZEK-niri.conf`` is seeded on install only as a
-fallback for helpers that cannot locate the install tree; it is never layered
-into the engine, so a stale copy cannot shadow the real file.
+``~`` / ``$HOME`` expanded). Two layers: the install-tree ``ZEK-niri.conf``
+ships defaults, and the copy at ``~/.config/<PROJECT_NAME>/ZEK-niri.conf`` — the
+one users edit — overrides same-named keys. Repeatable list keys are replaced by
+the later file, not appended.
+
+Wallpapers are addressed per file, not per folder:
+
+    preset_palette = <wallpaper file> = <palette file>     # repeatable
+
+Each mapped palette belongs to its own wallpaper and is applied by
+``ZEK-niri palette``. A bare ``preset_palette = <palette file>`` (no ``=``) is a
+global fallback. The wallpaper *deploy* directory is derived from the parent
+dirs of the mapped wallpaper files; with no mapping it falls back to
+``<Pictures>/wallpaper``. ``wallpaper_palette`` is an alias for the pair form.
 
 This tunes engine behaviour only. Per-app configuration still lives under
 ``configs/<app>/`` and is described by the manifest system.
@@ -23,40 +32,54 @@ CONF_NAME = "ZEK-niri.conf"
 
 _TRUE = {"1", "true", "yes", "on"}
 
-# Recognized keys and shipped defaults. Empty string means "unset"; callers
-# then fall back to a computed location (e.g. <Pictures>/wallpaper).
+# Recognized keys and shipped defaults. Repeatable keys start as empty lists.
 _DEFAULTS = {
     "ask_language_each_start": "false",
-    "wallpaper_dir": "",
-    "preset_palette": "",
     "log_path": "",
     "noctalia_scheme_source": "wallpaper",
     "noctalia_scheme_name": "soft",
+    "preset_palette": [],
     "wallpaper_palette": [],
+    "waybar_colors": [],
 }
 
-# Repeatable keys: every line is appended instead of overwriting.
-_LIST_KEYS = {"wallpaper_palette"}
+# Repeatable keys: every line is collected instead of overwriting.
+_LIST_KEYS = {"preset_palette", "wallpaper_palette", "waybar_colors"}
 
 
 @dataclass(frozen=True)
 class Config:
     ask_language_each_start: bool
-    wallpaper_dirs: tuple[Path, ...]
-    preset_palettes: tuple[Path, ...]
     wallpaper_palettes: tuple[tuple[Path, Path], ...]
+    waybar_colors: tuple[tuple[Path, Path], ...]
+    default_palettes: tuple[Path, ...]
     log_path: Optional[Path]
     noctalia_scheme_source: str
     noctalia_scheme_name: str
 
     @property
+    def wallpaper_dirs(self) -> tuple[Path, ...]:
+        """Deploy dirs derived from the mapped wallpaper files' parent dirs."""
+        dirs: list[Path] = []
+        for wallpaper, _ in self.wallpaper_palettes:
+            parent = wallpaper.parent
+            if parent not in dirs:
+                dirs.append(parent)
+        return tuple(dirs)
+
+    @property
     def wallpaper_dir(self) -> Optional[Path]:
-        """Primary wallpaper dir (first entry); None = auto ``<Pictures>/wallpaper``."""
+        """Primary derived dir; None = auto ``<Pictures>/wallpaper``."""
         return self.wallpaper_dirs[0] if self.wallpaper_dirs else None
 
     @property
     def preset_palette(self) -> Path:
-        return self.preset_palettes[0]
+        """Global/fallback palette: first bare ``preset_palette`` or first mapped."""
+        if self.default_palettes:
+            return self.default_palettes[0]
+        if self.wallpaper_palettes:
+            return self.wallpaper_palettes[0][1]
+        return default_preset_palette()
 
     @property
     def preset_palette_name(self) -> str:
@@ -65,7 +88,9 @@ class Config:
 
     @property
     def preset_palette_names(self) -> tuple[str, ...]:
-        return tuple(p.stem for p in self.preset_palettes)
+        if self.default_palettes:
+            return tuple(p.stem for p in self.default_palettes)
+        return tuple(p.stem for _, p in self.wallpaper_palettes)
 
     def palette_for(self, wallpaper: Path) -> Optional[Path]:
         """Palette mapped to ``wallpaper`` (exact path first, then basename)."""
@@ -78,9 +103,20 @@ class Config:
                 return palette
         return None
 
+    def waybar_colors_for(self, wallpaper: Path) -> Optional[Path]:
+        """Waybar CSS mapped to ``wallpaper`` (exact path first, then basename)."""
+        target = Path(wallpaper)
+        for wp, css in self.waybar_colors:
+            if _same_path(wp, target):
+                return css
+        for wp, css in self.waybar_colors:
+            if wp.name == target.name:
+                return css
+        return None
+
 
 def user_conf_path() -> Path:
-    """Fallback copy read only by shell helpers when the install tree is absent."""
+    """The config users edit; seeded from the install tree, overrides its defaults."""
     return get_env().nyx_dir / CONF_NAME
 
 
@@ -160,19 +196,33 @@ def _parse_file(path: Path) -> dict:
 
 
 def load_config() -> Config:
-    """Read ``ZEK-niri.conf`` from the install tree and resolve every field."""
+    """Read install-tree defaults, then the user-copy override, and resolve."""
     env = get_env()
     raw = {key: (list(val) if isinstance(val, list) else val) for key, val in _DEFAULTS.items()}
-    for key, value in _parse_file(env.repo_dir / CONF_NAME).items():
-        if key in _LIST_KEYS:
-            raw[key] = list(value)
-        else:
-            raw[key] = value
+    # Defaults from the install tree, then ``~/.config/<PROJECT_NAME>/ZEK-niri.conf``
+    # overrides. List keys are replaced by the later file (not appended).
+    for path in (env.repo_dir / CONF_NAME, user_conf_path()):
+        for key, value in _parse_file(path).items():
+            if key in _LIST_KEYS:
+                raw[key] = list(value)
+            else:
+                raw[key] = value
+
+    pair_lines: list[str] = []
+    single_lines: list[str] = []
+    for line in raw.get("preset_palette", []):
+        (pair_lines if "=" in str(line) else single_lines).append(line)
+    pair_lines += list(raw.get("wallpaper_palette", []))
+
+    default_palettes: list[Path] = []
+    for line in single_lines:
+        default_palettes.extend(_as_paths(line))
+
     return Config(
         ask_language_each_start=_as_bool(raw["ask_language_each_start"]),
-        wallpaper_dirs=_as_paths(raw["wallpaper_dir"]),
-        preset_palettes=_as_paths(raw["preset_palette"]) or (default_preset_palette(),),
-        wallpaper_palettes=_as_pairs(raw.get("wallpaper_palette", [])),
+        wallpaper_palettes=_as_pairs(pair_lines),
+        waybar_colors=_as_pairs(raw.get("waybar_colors", [])),
+        default_palettes=tuple(default_palettes),
         log_path=_as_path(raw["log_path"]),
         noctalia_scheme_source=(raw["noctalia_scheme_source"] or "wallpaper").strip(),
         noctalia_scheme_name=(raw["noctalia_scheme_name"] or "soft").strip(),

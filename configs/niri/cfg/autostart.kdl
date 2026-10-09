@@ -4,3 +4,6 @@
     spawn-at-startup "noctalia"
     spawn-at-startup "waybar"
     spawn-at-startup "mark-shot"
+    // ZEKniri：监听 noctalia 壁纸切换，自动套用该壁纸对应的配色
+    // （需已安装 ZEKniri CLI；~/.local/bin/ZEK-niri 由首次运行自安装）
+    spawn-at-startup "sh" "-c" "exec \"$HOME/.local/bin/ZEK-niri\" watch"

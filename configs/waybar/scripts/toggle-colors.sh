@@ -24,41 +24,41 @@ APPS_TOML="$CONF_DIR/templates-apps.toml"
 APPS_OFF="$APPS_TOML.disabled"
 ASSETS="/usr/share/noctalia/assets/templates"
 
-# 读取 ZEK-niri 配置：优先安装树里的 ZEK-niri.conf（仓库=唯一真源，靠 ~/.local/bin/ZEK-niri
-# 软链定位），找不到再回退用户副本 ~/.config/ZEKniri/ZEK-niri.conf。
-_resolve_conf() {
-    local launcher="$HOME/.local/bin/ZEK-niri" tree=""
-    if [ -L "$launcher" ]; then
-        tree="$(cd "$(dirname "$(readlink -f "$launcher" 2>/dev/null)")" 2>/dev/null && pwd)"
-        if [ -n "$tree" ] && [ -f "$tree/ZEK-niri.conf" ]; then
-            printf '%s' "$tree/ZEK-niri.conf"
-            return
-        fi
-    fi
-    printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/ZEKniri/ZEK-niri.conf"
-}
-CONF_FILE="$(_resolve_conf)"
+# 配置来源：用户副本优先（个人配置在这改），安装树里的 ZEK-niri.conf 作为默认兜底。
+_user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/ZEKniri/ZEK-niri.conf"
+_repo_conf=""
+_launcher="$HOME/.local/bin/ZEK-niri"
+if [ -L "$_launcher" ]; then
+    _tree="$(cd "$(dirname "$(readlink -f "$_launcher" 2>/dev/null)")" 2>/dev/null && pwd)"
+    [ -n "$_tree" ] && [ -f "$_tree/ZEK-niri.conf" ] && _repo_conf="$_tree/ZEK-niri.conf"
+fi
+CONF_FILES=()
+[ -f "$_user_conf" ] && CONF_FILES+=("$_user_conf")
+[ -f "$_repo_conf" ] && CONF_FILES+=("$_repo_conf")
 trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
-conf_get() {  # conf_get KEY DEFAULT
-    local key="$1" def="$2" line k v
-    [[ -f "$CONF_FILE" ]] || { printf '%s' "$def"; return; }
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
-        line="${line%%[[:space:]]#*}"
-        [[ "$line" == *=* ]] || continue
-        k="$(trim "${line%%=*}")"
-        [[ "$k" == "$key" ]] || continue
-        v="$(trim "${line#*=}")"
-        printf '%s' "${v/#\~/$HOME}"
-        return
-    done < "$CONF_FILE"
+conf_get() {  # conf_get KEY DEFAULT（用户副本优先，安装树兜底）
+    local key="$1" def="$2" f line k v
+    for f in "${CONF_FILES[@]}"; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+            line="${line%%[[:space:]]#*}"
+            [[ "$line" == *=* ]] || continue
+            k="$(trim "${line%%=*}")"
+            [[ "$k" == "$key" ]] || continue
+            v="$(trim "${line#*=}")"
+            printf '%s' "${v/#\~/$HOME}"
+            return
+        done < "$f"
+    done
     printf '%s' "$def"
 }
 
-# 预设配色文件路径（多值时取第一个；noctalia 只支持一个 custom palette）
-PRESET_PALETTE_PATH="$(conf_get preset_palette "$HOME/.config/noctalia/palettes/ZEKniri-preset.json")"
-PRESET_PALETTE_PATH="$(trim "${PRESET_PALETTE_PATH%%,*}")"
-PRESET_PALETTE="$(basename "$PRESET_PALETTE_PATH" .json)"
+# 预设配色：preset_palette 现按壁纸逐对（`壁纸 = 配色`）；取第一个配色的文件名作兜底
+_preset_raw="$(conf_get preset_palette "")"
+[[ "$_preset_raw" == *=* ]] && _preset_raw="${_preset_raw##*=}"
+_preset_raw="$(trim "$_preset_raw")"
+[ -n "$_preset_raw" ] || _preset_raw="$HOME/.config/noctalia/palettes/ZEKniri-preset.json"
+PRESET_PALETTE="$(basename "$_preset_raw" .json)"
 
 # noctalia模式取色器（source + name）
 NOCTALIA_SCHEME_SOURCE="$(conf_get noctalia_scheme_source "wallpaper")"
@@ -107,15 +107,19 @@ case "${1:-status}" in
   toggle)
     if [[ "$(active)" == "$NOCTALIA" ]]; then
       # -> 预设模式
-      sed -i -E "s|@import \"$NOCTALIA\";|@import \"$MANUAL\";|" "$STYLE"
+      sed -i -E "s|@import \"[^\"]*\.css\";|@import \"$MANUAL\";|" "$STYLE"
       apps_disable
-      # 让 Noctalia 同步固定调色板
-      ns color-scheme-set custom "$PRESET_PALETTE"
+      # 让 Noctalia 同步「当前壁纸对应」的配色；未映射且无全局兜底时保持不变
+      if command -v ZEK-niri >/dev/null 2>&1; then
+        ZEK-niri palette >/dev/null 2>&1 || true
+      else
+        ns color-scheme-set custom "$PRESET_PALETTE"
+      fi
       # 单次重载：借 waybar 模板的 post_hook（已防抖）
       ns templates-apply
     else
       # -> Noctalia 模式
-      sed -i -E "s|@import \"$MANUAL\";|@import \"$NOCTALIA\";|" "$STYLE"
+      sed -i -E "s|@import \"[^\"]*\.css\";|@import \"$NOCTALIA\";|" "$STYLE"
       # 让 Noctalia 切到自动取色方案
       ns color-scheme-set "$NOCTALIA_SCHEME_SOURCE" "$NOCTALIA_SCHEME_NAME"
       # apps_enable 内部的 templates-apply 已触发 post_hook 重载（已防抖）

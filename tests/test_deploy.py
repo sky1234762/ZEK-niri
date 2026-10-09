@@ -85,7 +85,7 @@ class DeployTest(unittest.TestCase):
             deploy_selected_configs(items_to_deploy=["noctalia"])
             self.assertEqual((state_dir / "settings.toml").read_text(encoding="utf-8"), "mine")
 
-    def test_runtime_conf_refreshed(self):
+    def test_runtime_conf_seeded_no_clobber(self):
         from zekniri.deploy.deploy import deploy_runtime_conf
 
         with TempEnv() as t:
@@ -95,14 +95,12 @@ class DeployTest(unittest.TestCase):
             self.assertTrue(deploy_runtime_conf())
             dest = t.home / ".config" / "ZEKniri" / "ZEK-niri.conf"
             self.assertEqual(dest.read_text(encoding="utf-8"), "noctalia_scheme_name = vivid\n")
-            # already in sync -> no-op
-            self.assertFalse(deploy_runtime_conf())
-            # source changed -> refreshed
+            # an existing user copy is never overwritten
             (t.home / "ZEK-niri.conf").write_text(
                 "noctalia_scheme_name = other\n", encoding="utf-8"
             )
-            self.assertTrue(deploy_runtime_conf())
-            self.assertEqual(dest.read_text(encoding="utf-8"), "noctalia_scheme_name = other\n")
+            self.assertFalse(deploy_runtime_conf())
+            self.assertEqual(dest.read_text(encoding="utf-8"), "noctalia_scheme_name = vivid\n")
 
     def test_missing_source_reports_failure(self):
         with TempEnv() as t:

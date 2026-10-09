@@ -41,7 +41,7 @@ from zekniri.deps import (
 from zekniri.doctor import generate_bug_report, run_doctor, show_logs
 from zekniri.i18n import msg
 from zekniri.network import safe_git_pull
-from zekniri.palette import apply_palette, list_mappings
+from zekniri.palette import apply_palette, install_watcher, list_mappings, remove_watcher, watch
 from zekniri.state import (
     backup_configs,
     delete_backup,
@@ -312,13 +312,16 @@ def show_config() -> None:
     env = get_env()
     cfg = get_config()
     print(f"{Colors.BOLD_WHITE}{msg('config_title')}{Colors.RESET}\n")
-    print(msg("config_file_line", str(env.repo_dir / CONF_NAME)))
+    user_conf = env.nyx_dir / CONF_NAME
+    conf_source = user_conf if user_conf.exists() else (env.repo_dir / CONF_NAME)
+    print(msg("config_file_line", str(conf_source)))
     rows = [
         ("ask_language_each_start", "true" if cfg.ask_language_each_start else "false"),
         ("wallpaper_dir", ", ".join(str(p) for p in cfg.wallpaper_dirs) if cfg.wallpaper_dirs else "(auto: <Pictures>/wallpaper)"),
-        ("preset_palette", ", ".join(str(p) for p in cfg.preset_palettes)),
+        ("preset_palette", ", ".join(str(p) for p in cfg.default_palettes) if cfg.default_palettes else "(auto: first mapped / ZEKniri-preset)"),
         ("preset_palette_name", ", ".join(cfg.preset_palette_names)),
         ("wallpaper_palette", ", ".join(f"{w.name}->{p.stem}" for w, p in cfg.wallpaper_palettes) if cfg.wallpaper_palettes else "(none)"),
+        ("waybar_colors", ", ".join(f"{w.name}->{c.name}" for w, c in cfg.waybar_colors) if cfg.waybar_colors else "(none)"),
         ("log_path", str(cfg.log_path) if cfg.log_path else str(env.state_dir / "install.log")),
         ("noctalia_scheme_source", cfg.noctalia_scheme_source),
         ("noctalia_scheme_name", cfg.noctalia_scheme_name),
@@ -468,15 +471,49 @@ def _cmd_show_config(sub_args: List[str]) -> int:
 
 
 def _cmd_palette(sub_args: List[str]) -> int:
-    usage = f"{CLI_CMD} palette [list|<wallpaper>]"
-    if sub_args and sub_args[0] in ("list", "ls"):
-        if len(sub_args) > 1:
+    usage = f"{CLI_CMD} palette [--wait] [--force] [list|<wallpaper>]"
+    wait = 0.0
+    force = False
+    rest: List[str] = []
+    for arg in sub_args:
+        if arg in ("--wait", "-w"):
+            wait = 2.0
+        elif arg in ("--force", "-f"):
+            force = True
+        elif arg.startswith("--wait="):
+            try:
+                wait = float(arg.split("=", 1)[1])
+            except ValueError:
+                exit_usage(usage)
+        elif arg.startswith("-"):
+            exit_usage(usage)
+        else:
+            rest.append(arg)
+    if rest and rest[0] in ("list", "ls"):
+        if len(rest) > 1:
             exit_usage(usage)
         list_mappings()
         return 0
-    if len(sub_args) > 1:
+    if len(rest) > 1:
         exit_usage(usage)
-    return 0 if apply_palette(sub_args[0] if sub_args else None) else 1
+    return 0 if apply_palette(rest[0] if rest else None, wait=wait, force=force) else 1
+
+
+def _cmd_watch(sub_args: List[str]) -> int:
+    if sub_args and sub_args[0] in ("install", "--install"):
+        return 0 if install_watcher() else 1
+    if sub_args and sub_args[0] in ("remove", "uninstall", "--remove"):
+        return 0 if remove_watcher() else 1
+    usage = f"{CLI_CMD} watch [seconds|install|remove]"
+    interval = 1.0
+    if sub_args:
+        if len(sub_args) > 1:
+            exit_usage(usage)
+        try:
+            interval = float(sub_args[0])
+        except ValueError:
+            exit_usage(usage)
+    return watch(max(0.2, interval))
 
 
 def _cmd_help(sub_args: List[str]) -> int:
@@ -505,6 +542,7 @@ COMMANDS = {
     "show-config": (_cmd_show_config, f"{CLI_CMD} show-config"),
     "config":    (_cmd_show_config, f"{CLI_CMD} show-config"),
     "palette":   (_cmd_palette,   f"{CLI_CMD} palette [list|<wallpaper>]"),
+    "watch":     (_cmd_watch,     f"{CLI_CMD} watch [seconds|install|remove]"),
     "bug":       (_cmd_bug,       f"{CLI_CMD} bug"),
     "report":    (_cmd_bug,       f"{CLI_CMD} bug"),
     "test":      (_cmd_test,      f"{CLI_CMD} test"),
@@ -521,7 +559,9 @@ def main() -> None:
         print(msg("err_root_denied"), file=sys.stderr)
         sys.exit(1)
 
-    acquire_lock()
+    # The long-running watcher must not hold the single-instance lock.
+    if not (len(sys.argv) > 1 and sys.argv[1].lower() == "watch"):
+        acquire_lock()
     init_logger()
     get_env()
     ensure_cli_symlink()

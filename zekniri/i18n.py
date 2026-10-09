@@ -107,7 +107,8 @@ TRANSLATIONS = {
             "  deps [core|apps]           install packages\n"
             "  assets                     deploy wallpapers\n"
             "  show-config                show resolved runtime config\n"
-            "  palette [list|<wp>]        apply the wallpaper's palette\n"
+            "  palette [--wait] [list|<wp>] apply the wallpaper's palette\n"
+            "  watch [sec|install|remove] follow wallpaper changes / manage service\n"
             "  doctor                     self-check\n"
             "  bug                        logs\n"
             "  uninstall [standard|keep-data|purge]\n"
@@ -125,6 +126,14 @@ TRANSLATIONS = {
         "palette_unmapped": "No palette mapped for wallpaper {0}.",
         "palette_applied": "[✓] Applied palette {1} (wallpaper {0})",
         "palette_apply_failed": "[!] Failed to apply palette {0}.",
+        "palette_auto_mode_skip": "[ZEKniri] Noctalia-auto mode; palette mapping skipped (use --force).",
+        "watch_started": "[ZEKniri] watching wallpaper changes (every {0}s)…",
+        "watch_stopped": "[ZEKniri] watcher stopped.",
+        "watch_already_running": "[ZEKniri] watcher already running.",
+        "watch_no_systemd": "[!] systemctl not found; cannot install the watcher service.",
+        "watch_installed": "[✓] Watcher service installed and started ({0}).",
+        "watch_removed": "[✓] Watcher service removed.",
+        "watch_not_installed": "[!] Watcher service is not installed.",
         # menu
         "menu_title": "Control panel",
         "menu_hint": "[↑↓] move  [Enter] select  [q] quit",
@@ -292,7 +301,8 @@ TRANSLATIONS = {
             "  deps [core|apps]           安装软件包\n"
             "  assets                     部署壁纸\n"
             "  show-config                查看解析后的运行配置\n"
-            "  palette [list|<壁纸>]      应用壁纸对应的配色\n"
+            "  palette [--wait] [list|<壁纸>] 应用壁纸对应的配色\n"
+            "  watch [秒|install|remove]  监听壁纸切换 / 管理监听服务\n"
             "  doctor                     自检\n"
             "  bug                        日志\n"
             "  uninstall [standard|keep-data|purge]\n"
@@ -310,6 +320,14 @@ TRANSLATIONS = {
         "palette_unmapped": "壁纸 {0} 没有对应配色。",
         "palette_applied": "[✓] 已应用配色 {1}（壁纸 {0}）",
         "palette_apply_failed": "[!] 应用配色 {0} 失败。",
+        "palette_auto_mode_skip": "[ZEKniri] 当前是 Noctalia 自动模式，已跳过配色映射（可用 --force 强制）。",
+        "watch_started": "[ZEKniri] 正在监听壁纸切换（每 {0}s）…",
+        "watch_stopped": "[ZEKniri] 监听已停止。",
+        "watch_already_running": "[ZEKniri] 监听已在运行。",
+        "watch_no_systemd": "[!] 未找到 systemctl，无法安装监听服务。",
+        "watch_installed": "[✓] 监听服务已安装并启动（{0}）。",
+        "watch_removed": "[✓] 监听服务已移除。",
+        "watch_not_installed": "[!] 监听服务未安装。",
         "menu_title": "控制面板",
         "menu_hint": "[↑↓] 移动  [Enter] 选择  [q] 退出",
         "menu_group_deploy": "部署",

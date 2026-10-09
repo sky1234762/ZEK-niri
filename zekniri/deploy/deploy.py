@@ -54,33 +54,33 @@ def _deploy_state_files(app: str, src: Path, state_files: List[str]) -> None:
 
 
 def deploy_runtime_conf() -> bool:
-    """Refresh the fallback ``~/.config/<PROJECT_NAME>/ZEK-niri.conf``.
+    """Seed ``~/.config/<PROJECT_NAME>/ZEK-niri.conf`` if absent (no-clobber).
 
-    The install-tree ``ZEK-niri.conf`` is the single source of truth; this is a
-    copy for deployed shell helpers that cannot locate the install tree. It is
-    rewritten whenever it differs from the source.
+    The user copy is the one people edit and it overrides the install-tree
+    defaults, so once it exists it is never overwritten.
     """
     env = get_env()
     src = env.repo_dir / CONF_NAME
     dest = env.nyx_dir / CONF_NAME
-    if not src.is_file():
+    if not src.is_file() or dest.exists():
         return False
-    try:
-        if dest.is_file() and dest.read_bytes() == src.read_bytes():
-            return False
-    except OSError:
-        pass
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
-    log_msg("INFO", f"Refreshed fallback config {dest}")
+    log_msg("INFO", f"Seeded runtime config {dest}")
     return True
 
 
 def _warn_missing_preset() -> None:
-    """Warn only when a preset's noctalia dir exists but the file is absent."""
-    for palette in get_config().preset_palettes:
+    """Warn when a configured palette's dir exists but the file is absent."""
+    cfg = get_config()
+    palettes = list(cfg.default_palettes) + [p for _, p in cfg.wallpaper_palettes]
+    seen = set()
+    for palette in palettes:
+        if palette in seen:
+            continue
+        seen.add(palette)
         if palette.parent.is_dir() and not palette.is_file():
-            log_msg("WARN", f"Configured preset palette missing: {palette}")
+            log_msg("WARN", f"Configured palette missing: {palette}")
 
 
 def _phase_atomic_deployment(
