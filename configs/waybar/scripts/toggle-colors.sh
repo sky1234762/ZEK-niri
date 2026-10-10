@@ -109,9 +109,9 @@ case "${1:-status}" in
       # -> 预设模式
       sed -i -E "s|@import \"[^\"]*\.css\";|@import \"$MANUAL\";|" "$STYLE"
       apps_disable
-      # 让 Noctalia 同步「当前壁纸对应」的配色；未映射且无全局兜底时保持不变
+      # 让 Noctalia 同步「当前壁纸对应」的配色；未映射时回退到 preset_palette 的默认预设
       if command -v ZEK-niri >/dev/null 2>&1; then
-        ZEK-niri palette >/dev/null 2>&1 || true
+        ZEK-niri palette >/dev/null 2>&1 || ns color-scheme-set custom "$PRESET_PALETTE"
       else
         ns color-scheme-set custom "$PRESET_PALETTE"
       fi
