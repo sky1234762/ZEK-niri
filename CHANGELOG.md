@@ -5,6 +5,7 @@ change, natural language, only the net change versus the last release.
 
 ## [Unreleased]
 
+- Optional `ZEKlive` install option: bundles `ZEK-blv` / `ZEK-danmaku` / `bilibili_live_stream` into `~/.local`.
 - Preset and Noctalia-auto modes are independent: `ZEK-niri palette` (and the watcher) only apply the config mappings while waybar is in preset mode; `--force` overrides.
 - `waybar_colors = <wallpaper> = <css>` mapping: per-wallpaper waybar colours, applied by `ZEK-niri palette`/the watcher (switches `style.css`'s `@import` and reloads waybar).
 - `ZEK-niri watch` follows noctalia wallpaper changes and applies each wallpaper's palette; `watch install` sets up a systemd user service, niri autostarts it, and `ZEK-niri palette --wait` fixes the waybar click race.

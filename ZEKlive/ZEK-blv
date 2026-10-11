@@ -1,0 +1,1315 @@
+#!/usr/bin/env python3
+"""ZEK-blv —— Linux开播工具，目前仅支持阿b
+
+用法：
+    ./ZEK-blv           交互式菜单
+    ./ZEK-blv --check   自检依赖与环境
+    ./ZEK-blv --help    帮助
+"""
+
+import argparse
+import curses
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+__version__ = "1.0.0"
+
+APP_NAME = "ZEK-blv"
+CONFIG_DIR = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+    APP_NAME,
+)
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+LOG_PATH = os.path.join(CONFIG_DIR, "stream.log")
+
+# 原脚本的默认位置（按优先级试探）
+SCRIPT_CANDIDATES = [
+    os.path.expanduser("~/下载/bilibili_live_stream"),
+    os.path.expanduser("~/ZEK-blv/bilibili_live_stream"),
+    os.path.expanduser("~/.local/share/ZEK-blv/bilibili_live_stream"),
+    "./bilibili_live_stream",
+]
+
+DEFAULT_CONFIG = {
+    "script": "",          # 空 = 自动探测
+    "video": {
+        "source": "screen",        # screen | webcam | test
+        "capture": "monitor",      # monitor | window（仅 screen）
+        "width": 1280,             # 0 = 自动（按屏幕宽高比算高）
+        "fps": 30,
+        "bitrate": 3500,           # kbps
+        "encoder": "libx264",      # libx264 | h264_nvenc
+        "preset": "veryfast",
+        "webcam": "/dev/video0",
+        "test_size": "1280x720",
+    },
+    "audio": {
+        "source": "desktop",       # desktop | mic | none
+        "bitrate": 160,
+    },
+}
+
+
+class ToolError(Exception):
+    def __init__(self, message, hint=None, extra=None):
+        super().__init__(message)
+        self.message = message
+        self.hint = hint
+        self.extra = extra or {}
+
+
+# ---------------------------------------------------------------------------
+# 基础工具
+# ---------------------------------------------------------------------------
+
+def c(text, code):
+    """给文本加 ANSI 颜色；非 tty 时原样返回。"""
+    if not sys.stdout.isatty():
+        return text
+    return "\033[%sm%s\033[0m" % (code, text)
+
+
+def green(t): return c(t, "32")
+def yellow(t): return c(t, "33")
+def red(t): return c(t, "31")
+def cyan(t): return c(t, "36")
+def white(t): return c(t, "37")
+def bold(t): return c(t, "1")
+
+
+def sh(cmd, **kw):
+    """运行命令，返回 CompletedProcess。失败不抛异常，交给调用方判断。"""
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+def sh_out(cmd, **kw):
+    r = sh(cmd, **kw)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def which(name):
+    return shutil.which(name)
+
+
+def load_config():
+    # 首次从旧名字 bili-live 迁移配置，避免升级后设置丢失
+    old_cfg = os.path.join(os.path.dirname(CONFIG_DIR), "bili-live", "config.json")
+    if not os.path.isfile(CONFIG_PATH) and os.path.isfile(old_cfg):
+        try:
+            os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+            shutil.copy2(old_cfg, CONFIG_PATH)
+        except OSError:
+            pass
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return json.loads(json.dumps(DEFAULT_CONFIG))
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG))
+    # 浅合并两层
+    for key, value in data.items():
+        if isinstance(value, dict) and isinstance(cfg.get(key), dict):
+            cfg[key].update(value)
+        else:
+            cfg[key] = value
+    return cfg
+
+
+def save_config(cfg):
+    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONFIG_PATH)
+
+
+# ---------------------------------------------------------------------------
+# 包装原脚本（房间控制）
+# ---------------------------------------------------------------------------
+
+class BiliControl:
+    def __init__(self, script):
+        self.script = script
+
+    def run(self, *args, timeout=180):
+        cmd = [sys.executable, self.script, *args, "--json"]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=timeout, stdin=subprocess.DEVNULL)
+        except FileNotFoundError:
+            raise ToolError(
+                "找不到 bilibili_live_stream 脚本：%s" % self.script,
+                hint="用设置菜单（7）指定脚本路径，或把它放到 ~/下载/ 下。",
+            )
+        except subprocess.TimeoutExpired:
+            raise ToolError("脚本执行超时（%ds）" % timeout)
+        try:
+            data = json.loads(r.stdout)
+        except ValueError:
+            raise ToolError("脚本输出不是合法 JSON：\n%s\nstderr:\n%s"
+                            % (r.stdout[-400:], r.stderr[-400:]))
+        if not data.get("ok"):
+            err = data.get("error") or {}
+            raise ToolError(
+                "[%s] %s" % (err.get("kind"), err.get("message")),
+                hint=err.get("hint"),
+                extra=err,  # 兼容，见下方 raise 处理
+            )
+        return data.get("data") or {}
+
+    # -- 具体命令 -----------------------------------------------------------
+
+    def login(self):
+        return self.run("login")
+
+    def logout(self):
+        return self.run("logout")
+
+    def status(self):
+        return self.run("status")
+
+    def areas(self, search=None, parent=None):
+        args = ["areas"]
+        if search:
+            args += ["--search", search]
+        if parent:
+            args += ["--parent", parent]
+        return self.run(*args)
+
+    def update(self, title=None, area=None):
+        args = ["update"]
+        if title:
+            args += ["--title", title]
+        if area:
+            args += ["--area", area]
+        return self.run(*args)
+
+    def start(self, title=None, area=None):
+        args = ["start"]
+        if title:
+            args += ["--title", title]
+        if area:
+            args += ["--area", area]
+        return self.run(*args)
+
+    def stop(self):
+        return self.run("stop")
+
+
+def find_script(cfg):
+    """返回可用的原脚本路径，找不到返回 None。配置的路径失效时会回退到候选。"""
+    if cfg.get("script"):
+        p = cfg["script"]
+        if os.path.isfile(p):
+            return p
+        # 配置的路径已失效，继续尝试其它候选
+    if os.environ.get("BILI_LIVE_STREAM_BIN"):
+        p = os.environ["BILI_LIVE_STREAM_BIN"]
+        if os.path.isfile(p):
+            return p
+    for cand in SCRIPT_CANDIDATES:
+        cand = os.path.expanduser(cand)
+        if os.path.isfile(cand):
+            return cand
+    p = shutil.which("bilibili_live_stream")
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 二维码展示（终端内联 + 图片查看器兜底）
+# ---------------------------------------------------------------------------
+
+def _terminal_graphics_format():
+    """返回终端支持的像素图形协议：kitty / sixels / iterm，都不支持返回 None。"""
+    term = (os.environ.get("TERM") or "").lower()
+    prog = (os.environ.get("TERM_PROGRAM") or "").lower()
+    if os.environ.get("KITTY_WINDOW_ID") or "kitty" in term or "ghostty" in (term + prog):
+        return "kitty"
+    if any(k in term for k in ("sixel", "foot", "mlterm", "contour", "yaft")) \
+            or "wezterm" in prog:
+        return "sixels"
+    if "iterm" in (term + prog):
+        return "iterm"
+    return None
+
+
+def show_qr(path):
+    if not path or not os.path.exists(path):
+        print(yellow("（二维码图片不存在：%s）" % path))
+        return
+
+    chafa = which("chafa")
+
+    # 1) 终端支持像素图形协议（kitty / sixel / iTerm2）→ 高清内联显示
+    fmt = _terminal_graphics_format()
+    if fmt and chafa:
+        r = sh([chafa, "--format", fmt, "--size", "40x20", path])
+        if r.returncode == 0 and r.stdout.strip():
+            print(r.stdout.rstrip("\n"))
+            print(cyan("↑ 用 App 扫这个二维码"))
+            print(cyan("  图片文件：%s" % path))
+            return
+
+    # 2) 没有图形协议 → 直接打开图片查看器
+    viewer = which("feh") or which("mpv") or which("xdg-open")
+    if viewer:
+        if os.path.basename(viewer) == "mpv":
+            args = [viewer, "--force-window=yes",
+                    "--image-display-duration=inf", path]
+        else:
+            args = [viewer, path]
+        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(cyan("已用图片查看器打开二维码：%s" % path))
+        return
+
+    # 3) 兜底：字符画
+    if chafa:
+        r = sh([chafa, "--format", "symbols", "--symbols", "block",
+                "--colors", "2", "--size", "40x20", path])
+        if r.returncode == 0 and r.stdout.strip():
+            print(r.stdout.rstrip("\n"))
+            print(cyan("↑ 二维码图片：%s" % path))
+            return
+
+    print(cyan("二维码图片路径：%s（请自行打开）" % path))
+
+
+# ---------------------------------------------------------------------------
+# xdg-desktop-portal ScreenCast（Wayland 屏幕采集）
+# ---------------------------------------------------------------------------
+
+def portal_screencast(capture="monitor", timeout=120):
+    """通过 portal 拿到 PipeWire 采集 fd 与节点 id。
+
+    返回 (fd, node_id, session_handle, bus)。fd 需要调用方保持打开。
+
+    xdg-desktop-portal 1.22 的实际流程：CreateSession / SelectSources /
+    Start 都先同步返回一个 request handle，真正的结果（session_handle、
+    streams）通过该 request 对象上的 Response 信号异步送达。
+    """
+    try:
+        import dbus
+        import dbus.mainloop.glib
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        from gi.repository import GLib
+    except ImportError as exc:
+        raise ToolError("缺少 dbus / gi (PyGObject)：%s" % exc,
+                        hint="安装 python-dbus 和 python-gobject。")
+
+    bus = dbus.SessionBus()
+    desktop = bus.get_object("org.freedesktop.portal.Desktop",
+                             "/org/freedesktop/portal/desktop")
+    sc = dbus.Interface(desktop, "org.freedesktop.portal.ScreenCast")
+
+    token = "zek_blv_%d_%d" % (os.getpid(), int(time.time() * 1000))
+
+    def wait_response(request_path):
+        """监听指定 request 对象上的 Response 信号。"""
+        holder = {}
+        loop = GLib.MainLoop()
+
+        def on_response(response, results):
+            holder["response"] = int(response)
+            holder["results"] = dict(results) if results else {}
+            loop.quit()
+
+        recv = bus.add_signal_receiver(
+            on_response,
+            signal_name="Response",
+            dbus_interface="org.freedesktop.portal.Request",
+            path=request_path,
+        )
+
+        def on_timeout():
+            loop.quit()
+            return False
+
+        GLib.timeout_add_seconds(timeout, on_timeout)
+        loop.run()
+        recv.remove()
+        if "response" not in holder:
+            raise ToolError(
+                "portal 请求超时（%ds）。是否没在弹出的对话框里选择屏幕/窗口？" % timeout)
+        return holder["response"], holder["results"]
+
+    # 1) CreateSession：同步返回 request handle，Response 里带 session_handle
+    req = sc.CreateSession({
+        "handle_token": token + "_s",
+        "session_handle_token": token + "_sess",
+    })
+    resp, results = wait_response(req)
+    if resp != 0:
+        raise ToolError("portal CreateSession 失败 (code=%d)" % resp)
+    session_handle = results.get("session_handle")
+    if not session_handle:
+        raise ToolError("portal CreateSession 没返回 session_handle")
+
+    # 2) SelectSources：选择要采集的源（弹出屏幕/窗口选择对话框）
+    types = dbus.UInt32(1 if capture == "monitor" else 2)
+    req = sc.SelectSources(session_handle, {
+        "handle_token": token + "_sel",
+        "types": types,
+        "multiple": dbus.Boolean(False),
+        "cursor_mode": dbus.UInt32(2),   # 2 = 嵌入光标
+    })
+    resp, _ = wait_response(req)
+    if resp != 0:
+        raise ToolError("portal SelectSources 被取消或失败 (code=%d)" % resp)
+
+    # 3) Start：开始采集，Response 里带 streams（节点列表）
+    req = sc.Start(session_handle, "", {"handle_token": token + "_start"})
+    resp, results = wait_response(req)
+    if resp != 0:
+        raise ToolError("portal Start 失败 (code=%d)" % resp)
+    streams = results.get("streams") or []
+    if not streams:
+        raise ToolError("portal 没返回可用的采集节点")
+    # streams 形如 [(uint32 node_id, a{sv} properties), ...]
+    node_id = int(streams[0][0])
+
+    # 4) OpenPipeWireRemote：同步直接返回 PipeWire remote 的 fd
+    fd_obj = sc.OpenPipeWireRemote(session_handle, {})
+    # python-dbus 的 UnixFd 不支持 int()，用 take() 取出 fd 整数并接管所有权
+    fd = fd_obj.take()
+
+    return fd, node_id, session_handle, bus
+
+
+def close_portal_session(bus, session_handle):
+    try:
+        obj = bus.get_object("org.freedesktop.portal.Desktop", session_handle)
+        iface = dbus_interface(obj)
+        iface.Close()
+    except Exception:
+        pass
+
+
+def dbus_interface(obj):
+    import dbus
+    return dbus.Interface(obj, "org.freedesktop.portal.Session")
+
+
+# ---------------------------------------------------------------------------
+# 屏幕 / 音频设备探测
+# ---------------------------------------------------------------------------
+
+def detect_screen_size():
+    """返回 (w, h)。优先 niri msg -j outputs，其次 xrandr。"""
+    niri = which("niri")
+    if niri:
+        r = sh([niri, "msg", "-j", "outputs"])
+        if r.returncode == 0:
+            try:
+                outputs = json.loads(r.stdout)
+                if isinstance(outputs, dict):
+                    for out in outputs.values():
+                        modes = out.get("modes") or []
+                        idx = out.get("current_mode")
+                        if isinstance(idx, int) and 0 <= idx < len(modes):
+                            return int(modes[idx]["width"]), int(modes[idx]["height"])
+                        lg = out.get("logical") or {}
+                        if lg.get("width") and lg.get("height"):
+                            return int(lg["width"]), int(lg["height"])
+                elif isinstance(outputs, list):
+                    for out in outputs:
+                        mode = out.get("current_mode") or {}
+                        if mode.get("width") and mode.get("height"):
+                            return int(mode["width"]), int(mode["height"])
+            except (ValueError, KeyError, TypeError):
+                pass
+    xrandr = which("xrandr")
+    if xrandr:
+        out = sh_out(["xrandr"])
+        m = re.search(r"current\s+(\d+)\s+x\s+(\d+)", out)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def compute_resolution(cfg):
+    """根据配置里的目标宽度，按屏幕宽高比算出目标高度（偶数）。"""
+    width = int(cfg["video"].get("width") or 0)
+    if width <= 0:
+        width = 1280
+    size = detect_screen_size()
+    if size:
+        sw, sh = size
+        height = round(width * sh / sw / 2) * 2
+    else:
+        height = round(width * 9 / 16 / 2) * 2
+    return width, max(height, 2)
+
+
+def pulse_device(kind):
+    """返回 ffmpeg -f pulse 用的设备名。"""
+    if kind == "mic":
+        src = sh_out(["pactl", "get-default-source"])
+        return src or "default"
+    if kind == "desktop":
+        sink = sh_out(["pactl", "get-default-sink"])
+        return (sink + ".monitor") if sink else "default"
+    return None
+
+
+def detect_encoders():
+    out = sh_out(["ffmpeg", "-hide_banner", "-encoders"])
+    encs = []
+    for name in ("libx264", "h264_nvenc", "h264_vaapi"):
+        if name in out:
+            encs.append(name)
+    return encs or ["libx264"]
+
+
+# ---------------------------------------------------------------------------
+# OBS 集成：niri 的 PipeWire screencast 只提供 DMA-BUF 格式，gst-pipewire
+# 处理不了 tiled DMA-BUF（pipewire work_item #5353 未修复），而 OBS 用
+# libpipewire 直接支持 DMA-BUF，可以正常采集 niri 屏幕。所以屏幕推流走 OBS。
+# ---------------------------------------------------------------------------
+
+OBS_CONFIG_DIR = os.path.expanduser("~/.config/obs-studio")
+
+
+def _obs_user_ini():
+    """读 OBS 的 user.ini，拿当前激活的 profile / scene collection 名。"""
+    out = {}
+    try:
+        with open(os.path.join(OBS_CONFIG_DIR, "user.ini"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line and not line.startswith(("[", ";", "#")):
+                    k, v = line.split("=", 1)
+                    out[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return out
+
+
+def obs_profile():
+    return _obs_user_ini().get("Profile") or "未命名"
+
+
+def obs_collection():
+    return _obs_user_ini().get("SceneCollection") or "未命名"
+
+
+def obs_service_path(profile=None):
+    profile = profile or obs_profile()
+    return os.path.join(OBS_CONFIG_DIR, "basic", "profiles", profile, "service.json")
+
+
+def write_obs_service(server, key, profile=None):
+    """把 bilibili 的推流地址+密钥写进 OBS 当前 profile 的 service.json。"""
+    path = obs_service_path(profile)
+    data = {
+        "type": "rtmp_custom",
+        "settings": {
+            "server": server,
+            "use_auth": False,
+            "bwtest": False,
+            # bilibili 的推流码以 ? 开头（?streamname=...&key=...），? 必须保留，
+            # 否则服务器解析不到参数会拒绝推流。
+            "key": key or "",
+        },
+    }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, path)
+    return path
+
+
+def obs_running():
+    return sh_out(["pgrep", "-x", "obs"]) != ""
+
+
+# ---------------------------------------------------------------------------
+# 推流（ffmpeg + 可选的 gst 采集）
+# ---------------------------------------------------------------------------
+
+class Streamer:
+    def __init__(self, log_path=LOG_PATH):
+        self.log_path = log_path
+        self.gst = None
+        self.ffmpeg = None
+        self.obs = None
+        self.started_at = None
+        self.portal_fd = None
+        self.portal_bus = None
+        self.portal_session = None
+        self._log = None
+
+    # -- 命令构造 -----------------------------------------------------------
+
+    def _audio_args(self, cfg):
+        kind = cfg["audio"].get("source", "desktop")
+        ab = int(cfg["audio"].get("bitrate") or 160)
+        if kind == "none":
+            return []
+        dev = pulse_device(kind)
+        if not dev:
+            return []
+        return [
+            "-f", "pulse", "-thread_queue_size", "2048", "-i", dev,
+            "-c:a", "aac", "-b:a", "%dk" % ab, "-ar", "48000", "-ac", "2",
+        ]
+
+    def _encoder_args(self, cfg, width, height, fps):
+        enc = cfg["video"].get("encoder") or "libx264"
+        vb = int(cfg["video"].get("bitrate") or 3500)
+        fps = int(fps)
+        gop = fps * 2
+        if enc == "h264_nvenc":
+            return [
+                "-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll",
+                "-rc", "cbr", "-b:v", "%dk" % vb, "-maxrate", "%dk" % vb,
+                "-bufsize", "%dk" % (vb * 2),
+                "-pix_fmt", "yuv420p", "-g", str(gop), "-r", str(fps),
+            ]
+        # libx264
+        preset = cfg["video"].get("preset") or "veryfast"
+        return [
+            "-c:v", "libx264", "-preset", preset, "-tune", "zerolatency",
+            "-b:v", "%dk" % vb, "-minrate", "%dk" % vb,
+            "-maxrate", "%dk" % vb, "-bufsize", "%dk" % (vb * 2),
+            "-pix_fmt", "yuv420p", "-g", str(gop), "-r", str(fps),
+        ]
+
+    def _rtmp_head(self, rtmp_url):
+        return ["-f", "flv", rtmp_url]
+
+    # -- screen：gst pipewiresrc 采集 → 管道 → ffmpeg -----------------------
+
+    def build_screen(self, cfg, rtmp_url, fd, node_id):
+        width, height = compute_resolution(cfg)
+        fps = int(cfg["video"].get("fps") or 30)
+        gst = [
+            "gst-launch-1.0", "-q",
+            "pipewiresrc", "fd=%d" % fd, "target-object=%d" % node_id,
+            "do-timestamp=true",
+            "!", "videoconvert", "!", "videoscale",
+            "!", "video/x-raw,format=BGRx,width=%d,height=%d,framerate=%d/1"
+                 % (width, height, fps),
+            "!", "fdsink", "sync=false",
+        ]
+        ffmpeg = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info",
+            "-stats_period", "2",
+            "-f", "rawvideo", "-pix_fmt", "bgr0",
+            "-s", "%dx%d" % (width, height),
+            "-framerate", str(fps),
+            "-thread_queue_size", "2048", "-i", "pipe:0",
+        ]
+        audio_args = self._audio_args(cfg)
+        ffmpeg += audio_args
+        ffmpeg += self._encoder_args(cfg, width, height, fps)
+        # 只有带音频时才 map 音频流
+        if audio_args:
+            ffmpeg += ["-map", "0:v:0", "-map", "1:a:0"]
+        else:
+            ffmpeg += ["-map", "0:v:0"]
+        ffmpeg += self._rtmp_head(rtmp_url)
+        return gst, ffmpeg
+
+    # -- webcam：v4l2 直接 ffmpeg -------------------------------------------
+
+    def build_webcam(self, cfg, rtmp_url):
+        dev = cfg["video"].get("webcam") or "/dev/video0"
+        width, height = compute_resolution(cfg)
+        fps = int(cfg["video"].get("fps") or 30)
+        ffmpeg = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info",
+            "-stats_period", "2",
+            "-f", "v4l2", "-input_format", "yuyv422",
+            "-video_size", "%dx%d" % (width, height),
+            "-framerate", str(fps), "-i", dev,
+        ]
+        audio_args = self._audio_args(cfg)
+        ffmpeg += audio_args
+        ffmpeg += self._encoder_args(cfg, width, height, fps)
+        if audio_args:
+            ffmpeg += ["-map", "0:v:0", "-map", "1:a:0"]
+        else:
+            ffmpeg += ["-map", "0:v:0"]
+        ffmpeg += self._rtmp_head(rtmp_url)
+        return None, ffmpeg
+
+    # -- test：lavfi 测试画面（跑通全流程用）--------------------------------
+
+    def build_test(self, cfg, rtmp_url):
+        size = cfg["video"].get("test_size") or "1280x720"
+        fps = int(cfg["video"].get("fps") or 30)
+        w, h = (int(x) for x in size.lower().split("x", 1))
+        ffmpeg = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info",
+            "-stats_period", "2", "-re",
+            "-f", "lavfi", "-i", "testsrc=size=%s:rate=%d" % (size, fps),
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        ]
+        ffmpeg += self._encoder_args(cfg, w, h, fps)
+        ffmpeg += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+        ffmpeg += ["-map", "0:v:0", "-map", "1:a:0"]
+        ffmpeg += self._rtmp_head(rtmp_url)
+        return None, ffmpeg
+
+    # -- 启动 / 停止 --------------------------------------------------------
+
+    def start(self, gst_cmd, ffmpeg_cmd, pass_fds=None):
+        os.makedirs(os.path.dirname(self.log_path), mode=0o700, exist_ok=True)
+        self._log = open(self.log_path, "wb")
+        if gst_cmd:
+            self.gst = subprocess.Popen(
+                gst_cmd, stdout=subprocess.PIPE, stderr=self._log,
+                pass_fds=pass_fds or (),
+            )
+            self.ffmpeg = subprocess.Popen(
+                ffmpeg_cmd, stdin=self.gst.stdout,
+                stdout=self._log, stderr=self._log,
+            )
+            self.gst.stdout.close()
+        else:
+            self.ffmpeg = subprocess.Popen(
+                ffmpeg_cmd, stdout=self._log, stderr=self._log,
+            )
+        self.started_at = time.time()
+
+    def alive(self):
+        return (self.ffmpeg is not None and self.ffmpeg.poll() is None) or \
+               (self.obs is not None and self.obs.poll() is None)
+
+    def uptime(self):
+        if not self.started_at:
+            return 0
+        return int(time.time() - self.started_at)
+
+    def last_stats(self):
+        """从日志里抓最后一帧的 ffmpeg 进度。"""
+        if not os.path.exists(self.log_path):
+            return None
+        tail = sh_out(["tail", "-c", "4096", self.log_path])
+        for line in reversed(tail.splitlines()):
+            if "speed=" in line and "frame=" in line:
+                return line.strip()
+            if "error" in line.lower() or "failed" in line.lower():
+                return line.strip()
+        return None
+
+    # -- OBS 模式：写配置 + 启动 OBS 推流 ------------------------------------
+
+    def start_obs(self, server, key):
+        profile = obs_profile()
+        collection = obs_collection()
+        svc = write_obs_service(server, key, profile)
+        os.makedirs(os.path.dirname(self.log_path), mode=0o700, exist_ok=True)
+        self._log = open(self.log_path, "wb")
+        self.obs = subprocess.Popen(
+            ["obs", "--startstreaming", "--minimize-to-tray",
+             "--profile", profile, "--collection", collection],
+            stdout=self._log, stderr=self._log,
+        )
+        self.started_at = time.time()
+        return svc
+
+    def stop(self):
+        ff_procs = [p for p in (self.ffmpeg, self.gst) if p is not None]
+        obs_procs = [self.obs] if self.obs is not None else []
+        # ffmpeg/gst：SIGINT 优雅收尾（写 FLV trailer）
+        for p in ff_procs:
+            if p.poll() is None:
+                try:
+                    p.send_signal(signal.SIGINT)
+                except Exception:
+                    pass
+        # OBS：直接 SIGTERM 关闭
+        for p in obs_procs:
+            if p.poll() is None:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+        deadline = time.time() + 5
+        for p in ff_procs + obs_procs:
+            while p.poll() is None and time.time() < deadline:
+                time.sleep(0.1)
+        for p in ff_procs + obs_procs:
+            if p.poll() is None:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+        for p in ff_procs + obs_procs:
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        if self._log:
+            try:
+                self._log.close()
+            except Exception:
+                pass
+        self.gst = self.ffmpeg = self.obs = None
+        self.started_at = None
+
+    def release_portal(self):
+        if self.portal_bus is not None and self.portal_session:
+            close_portal_session(self.portal_bus, self.portal_session)
+        if self.portal_fd is not None:
+            try:
+                os.close(self.portal_fd)
+            except OSError:
+                pass
+        self.portal_fd = self.portal_bus = self.portal_session = None
+
+
+# ---------------------------------------------------------------------------
+# 交互动作
+# ---------------------------------------------------------------------------
+
+def fmt_duration(sec):
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    return "%02d:%02d:%02d" % (h, m, s)
+
+
+def action_login(ctl):
+    while True:
+        try:
+            data = ctl.login()
+        except ToolError as exc:
+            print(red("登录失败：%s" % exc.message))
+            if exc.hint:
+                print(yellow("  " + exc.hint))
+            return
+        status = data.get("status")
+        if status in ("success", "already_logged_in"):
+            print(green("已登录：%s (uid %s)"
+                        % (data.get("username"), data.get("uid"))))
+            return
+        qr = data.get("qr_image")
+        if status == "pending":
+            show_qr(qr)
+            print(yellow("二维码 %d 秒内有效。" % data.get("expires_in", 180)))
+        elif status == "waiting":
+            print(yellow("%s（还剩 %d 秒）"
+                         % (data.get("detail", "等待扫码"), data.get("expires_in", 0))))
+        ans = input(bold("扫完码按回车再查一次，输入 q 取消：") + " ").strip()
+        if ans.lower() == "q":
+            print("已取消登录。")
+            return
+
+
+def action_status(ctl):
+    try:
+        d = ctl.status()
+    except ToolError as exc:
+        print(red("查询失败：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        if exc.extra.get("kind") == "auth":
+            print(yellow("提示：先回菜单选「登录」。"))
+        return
+    print(bold("%s · 直播间 %s · %s"
+               % (d.get("live_status_text"), d.get("room_id"), d.get("username"))))
+    print("  标题：%s" % d.get("title"))
+    print("  分区：%s（id %s）" % (d.get("area"), d.get("area_id")))
+    print("  链接：%s" % d.get("room_url"))
+
+
+def action_update(ctl):
+    try:
+        cur = ctl.status()
+    except ToolError:
+        cur = {}
+    print("当前标题：%s" % cur.get("title", "（未登录，忽略）"))
+    print("当前分区：%s（id %s）" % (cur.get("area"), cur.get("area_id")))
+    title = input(bold("新标题（回车保持不变）：") + " ").strip() or None
+    area = input(bold("新分区（名字/拼音/id，回车保持不变）：") + " ").strip() or None
+    if not title and not area:
+        print("没改任何东西。")
+        return
+    try:
+        d = ctl.update(title=title, area=area)
+    except ToolError as exc:
+        print(red("更新失败：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        return
+    print(green("已更新：%s" % "、".join(d.get("changed") or [])))
+    print("  标题：%s" % d.get("title"))
+    print("  分区：%s（id %s）" % (d.get("area"), d.get("area_id")))
+    if d.get("warning"):
+        print(yellow("  " + d["warning"]))
+
+
+def _pick_stream_url(data):
+    """从 start 结果里取主 RTMP 推流地址。"""
+    streams = data.get("streams") or []
+    for s in streams:
+        if s.get("protocol") == "rtmp" and s.get("full_url"):
+            return s["full_url"], s
+    # 兜底：server + key 拼接
+    server = data.get("server")
+    key = data.get("stream_key")
+    if server and key:
+        if key.startswith("?") or server.endswith("/"):
+            url = server + key
+        else:
+            url = server + "/" + key
+        return url, {"address": server, "key": key}
+    raise ToolError("start 结果里没有推流地址")
+
+
+def _confirm_start():
+    print(white("kskbl"))
+    print(red("[★ 注意：开播会让直播间立刻对外可见，粉丝会收到开播推送，"))
+    print(red("  而且无法静默撤销。]"))
+    ans = input(bold("zdjd（y/N）：") + " ").strip().lower()
+    return ans in ("y", "yes")
+
+
+def action_start(ctl, streamer, cfg):
+    if streamer.alive():
+        print(yellow("已经在推流中（已 %s）。先停止再开新流。" % fmt_duration(streamer.uptime())))
+        return
+
+    # 登录检查
+    try:
+        cur = ctl.status()
+    except ToolError as exc:
+        print(red("还不能开播：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        return
+
+    source = cfg["video"].get("source", "screen")
+    print("当前画源：%s" % cyan(source))
+
+    # 可选：改标题 / 分区
+    title = input(bold("开播标题（回车保持「%s」）：" % cur.get("title", "")) + " ").strip() or None
+    area = input(bold("分区（回车保持当前）：") + " ").strip() or None
+
+    if not _confirm_start():
+        print("已取消。")
+        return
+
+    # 如果房间处于「直播中」但当前没在推流，是上次残留的开播状态，推流码已失效；
+    # 先下播再重开，否则 startLive 会返回旧的（已失效）推流码。
+    if cur.get("is_live") and not streamer.alive():
+        print(yellow("检测到「直播中」但没有在推流（上次的残留状态），先下播再重新开播。"))
+        try:
+            ctl.stop()
+            time.sleep(2)
+        except ToolError as exc:
+            print(yellow("  下播失败（忽略）：%s" % exc.message))
+
+    # 1) 开播拿推流码
+    print("正在开播并获取推流地址……")
+    try:
+        data = ctl.start(title=title, area=area)
+    except ToolError as exc:
+        print(red("开播失败：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        qr = (exc.extra.get("detail") or {}).get("qr_image") if hasattr(exc, "extra") else None
+        if qr:
+            show_qr(qr)
+        return
+
+    rtmp_url, prim = _pick_stream_url(data)
+    print(green("wkzkbl （直播间 %s" % data.get("room_id")))
+    print("  标题：%s" % data.get("title"))
+    print("  分区：%s" % data.get("area"))
+    if data.get("warning"):
+        print(yellow("  " + data["warning"]))
+
+    # 2) 启动推流
+    print("正在启动推流（画源：%s）……" % source)
+    try:
+        if source == "screen":
+            # niri 的 screencast 只提供 DMA-BUF，gst-pipewire 采不了，改用 OBS
+            server = prim.get("address")
+            key = prim.get("key")
+            if not server or not key:
+                raise ToolError("start 结果里没有 server/key，无法写 OBS 配置")
+            if obs_running():
+                raise ToolError("OBS 已经在运行，请先关闭它再重新开播（避免配置冲突）。")
+            svc = streamer.start_obs(server, key)
+            print(green("已写入 OBS 推流配置：%s" % svc))
+        elif source == "webcam":
+            gst_cmd, ff_cmd = streamer.build_webcam(cfg, rtmp_url)
+            streamer.start(gst_cmd, ff_cmd)
+        elif source == "test":
+            gst_cmd, ff_cmd = streamer.build_test(cfg, rtmp_url)
+            streamer.start(gst_cmd, ff_cmd)
+        else:
+            raise ToolError("未知画源：%s" % source)
+    except ToolError as exc:
+        print(red("推流启动失败：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        print(yellow("直播间已经开播但还没推流，请用「停止推流 & 下播」收尾。"))
+        return
+
+    # 给 3 秒看 OBS/ffmpeg 是否立刻退出
+    time.sleep(3)
+    if streamer.alive():
+        print(green("推流中！" + ("（OBS 已启动）" if source == "screen" else "")))
+        print(gray_status(streamer))
+    else:
+        print(red("推流进程退出了，日志见 %s" % streamer.log_path))
+        _print_log_tail(streamer.log_path)
+
+
+def gray_status(streamer):
+    line = "已推流 %s · 菜单「5」查看状态 /「6」停止并下播" % fmt_duration(streamer.uptime())
+    stats = streamer.last_stats()
+    if stats:
+        line += "\n  " + stats
+    return line
+
+
+def _print_log_tail(path, n=15):
+    if not os.path.exists(path):
+        return
+    tail = sh_out(["tail", "-n", str(n), path])
+    if tail:
+        print(cyan("----- 推流日志最后 %d 行 -----" % n))
+        print(tail)
+        print(cyan("----------------------------"))
+
+
+def action_show_stream(streamer):
+    if not streamer.alive():
+        print(yellow("当前没有在推流。"))
+        return
+    print(green("推流中，已 %s" % fmt_duration(streamer.uptime())))
+    stats = streamer.last_stats()
+    if stats:
+        print("  " + stats)
+    _print_log_tail(streamer.log_path, 8)
+
+
+def action_stop(ctl, streamer):
+    was_streaming = streamer.alive()
+    if was_streaming:
+        print("正在停止推流……")
+        streamer.stop()
+        streamer.release_portal()
+        print(green("推流已停止。"))
+    else:
+        print(yellow("无推流在进程中"))
+    # 下播
+    try:
+        d = ctl.stop()
+        print(green("已下播 · 直播间 %s" % d.get("room_id")))
+    except ToolError as exc:
+        print(red("下播失败：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+
+
+def action_logout(ctl):
+    try:
+        d = ctl.logout()
+        print(green(d.get("message")))
+    except ToolError as exc:
+        print(red("登出失败：%s" % exc.message))
+
+
+def action_settings(cfg):
+    print("当前设置：")
+    print(json.dumps(cfg, ensure_ascii=False, indent=2))
+    print("\n逐项回车保持当前值，直接改数字/文字：")
+
+    v = cfg["video"]
+    encoders = detect_encoders()
+    src = input("画源 screen/webcam/test [%s]：" % v.get("source")).strip() or v.get("source")
+    v["source"] = src
+    cap = input("采集 monitor/window（仅 screen）[%s]：" % v.get("capture")).strip() or v.get("capture")
+    v["capture"] = cap
+    w = input("输出宽度（0=自动）[%s]：" % v.get("width")).strip()
+    v["width"] = int(w) if w.isdigit() else v.get("width")
+    fps = input("帧率 [%s]：" % v.get("fps")).strip()
+    v["fps"] = int(fps) if fps.isdigit() else v.get("fps")
+    br = input("视频码率 kbps [%s]：" % v.get("bitrate")).strip()
+    v["bitrate"] = int(br) if br.isdigit() else v.get("bitrate")
+    enc = input("编码器 %s [%s]：" % ("/".join(encoders), v.get("encoder"))).strip() or v.get("encoder")
+    v["encoder"] = enc if enc in encoders else (encoders[0] if encoders else "libx264")
+    preset = input("x264 preset [%s]：" % v.get("preset")).strip() or v.get("preset")
+    v["preset"] = preset
+
+    a = cfg["audio"]
+    asrc = input("音频源 desktop/mic/none [%s]：" % a.get("source")).strip() or a.get("source")
+    a["source"] = asrc
+    abr = input("音频码率 kbps [%s]：" % a.get("bitrate")).strip()
+    a["bitrate"] = int(abr) if abr.isdigit() else a.get("bitrate")
+
+    script = input("原脚本路径 [%s]：" % cfg.get("script", "（自动）")).strip()
+    if script:
+        cfg["script"] = script
+    save_config(cfg)
+    print(green("已保存到 %s" % CONFIG_PATH))
+
+
+def action_check(cfg):
+    print(bold("== 依赖自检 =="))
+    checks = [
+        ("ffmpeg", which("ffmpeg")),
+        ("obs（屏幕推流用）", which("obs")),
+        ("gst-launch-1.0", which("gst-launch-1.0")),
+        ("pipewiresrc 插件", sh_out(["gst-inspect-1.0", "pipewiresrc"]) != ""),
+        ("niri / xrandr", which("niri") or which("xrandr")),
+    ]
+    for name, val in checks:
+        if val is None:
+            print("  %-22s %s" % (name, yellow("需手动确认")))
+        elif val:
+            print("  %-22s %s" % (name, green(val if isinstance(val, str) else "OK")))
+        else:
+            print("  %-22s %s" % (name, red("缺失")))
+
+    print(bold("\n== 原脚本 =="))
+    script = find_script(cfg)
+    if script:
+        print("  使用：%s" % green(script))
+    else:
+        print(red("  未找到 bilibili_live_stream！"))
+        print(yellow("  请确认它在 ~/下载/ 下，或用设置菜单指定路径。"))
+
+    print(bold("\n== 音频 =="))
+    print("  默认输出(桌面声音)：%s" % pulse_device("desktop"))
+    print("  默认输入(麦克风)：%s" % pulse_device("mic"))
+
+    print(bold("\n== 屏幕推流（OBS）=="))
+    if which("obs"):
+        prof = obs_profile()
+        coll = obs_collection()
+        print("  激活 profile：%s" % prof)
+        print("  激活场景集：%s" % coll)
+        print("  推流配置：%s" % obs_service_path(prof))
+        coll_file = os.path.join(OBS_CONFIG_DIR, "basic", "scenes", coll + ".json")
+        has_pw = False
+        try:
+            with open(coll_file, encoding="utf-8") as f:
+                scene = json.load(f)
+            def _walk(s):
+                if isinstance(s, dict):
+                    if s.get("id") == "pipewire-screen-capture-source":
+                        return True
+                    return any(_walk(v) for v in s.values())
+                if isinstance(s, list):
+                    return any(_walk(v) for v in s)
+                return False
+            has_pw = _walk(scene)
+        except (OSError, ValueError):
+            pass
+        if has_pw:
+            print(green("  场景里已有「屏幕采集(PipeWire)」源"))
+        else:
+            print(yellow("  场景里没找到 PipeWire 采集源，需先在 OBS 里加一个。"))
+    else:
+        print(red("  未找到 OBS！屏幕推流需要安装 obs-studio。"))
+
+    print(bold("\n== 其他画源（webcam/test 走 ffmpeg）=="))
+    print("  编码器：%s" % "、".join(detect_encoders()))
+
+    print(bold("\n== portal（屏幕采集）=="))
+    try:
+        import dbus  # noqa: F401
+        bus = dbus.SessionBus()
+        names = bus.list_names()
+        if "org.freedesktop.portal.Desktop" in names:
+            print(green("  xdg-desktop-portal 可用"))
+        else:
+            print(red("  xdg-desktop-portal 未运行！屏幕采集会失败。"))
+    except Exception as exc:
+        print(red("  dbus 不可用：%s" % exc))
+
+
+# ---------------------------------------------------------------------------
+# 菜单
+# ---------------------------------------------------------------------------
+
+MENU = [
+    ("登录（扫码）", "login"),
+    ("直播间状态", "status"),
+    ("修改标题 / 分区", "update"),
+    ("开播并推流", "start"),
+    ("查看推流状态", "show"),
+    ("停止推流 & 下播", "stop"),
+    ("设置（画源/分辨率/码率/音频）", "settings"),
+    ("自检", "check"),
+    ("登出", "logout"),
+    ("退出", "quit"),
+]
+
+
+def _draw_menu(stdscr, streamer, idx):
+    stdscr.erase()
+    h, w = stdscr.getmaxyx()
+    status = ("● 推流中（已 %s）" % fmt_duration(streamer.uptime())
+              if streamer.alive() else "● 未推流")
+    try:
+        stdscr.addstr(0, 0, status[:w - 1], curses.A_BOLD | curses.A_REVERSE)
+    except curses.error:
+        pass
+    try:
+        stdscr.addstr(1, 0, "列位诸公，今天我们播什么？ 是啊，播什么", curses.A_BOLD)
+    except curses.error:
+        pass
+    for i, (label, _) in enumerate(MENU):
+        y = 3 + i
+        if y >= h - 1:
+            break
+        num = str(i + 1 if i < 9 else 0)
+        text = "  %s. %s" % (num, label)
+        try:
+            if i == idx:
+                stdscr.addstr(y, 0, text[:w - 1], curses.A_REVERSE)
+            else:
+                stdscr.addstr(y, 0, text[:w - 1])
+        except curses.error:
+            pass
+    try:
+        hint = " ↑/↓ 或 j/k 移动   Enter 确认   q 退出   数字键直接选  "
+        stdscr.addstr(h - 1, 0, hint[:w - 1], curses.A_DIM)
+    except curses.error:
+        pass
+    stdscr.refresh()
+
+
+def curses_menu(streamer, initial_idx=0):
+    """全屏菜单，方向键选择。返回 (action_key, new_idx)。"""
+    result = {}
+
+    def _main(stdscr):
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        idx = initial_idx
+        while True:
+            _draw_menu(stdscr, streamer, idx)
+            k = stdscr.getch()
+            if k in (curses.KEY_UP, ord('k'), ord('K')):
+                idx = (idx - 1) % len(MENU)
+            elif k in (curses.KEY_DOWN, ord('j'), ord('J')):
+                idx = (idx + 1) % len(MENU)
+            elif k == curses.KEY_HOME:
+                idx = 0
+            elif k == curses.KEY_END:
+                idx = len(MENU) - 1
+            elif k in (curses.KEY_ENTER, 10, 13, ord(' ')):
+                result['action'] = MENU[idx][1]
+                result['idx'] = idx
+                return
+            elif k in (ord('q'), ord('Q')):
+                result['action'] = 'quit'
+                result['idx'] = idx
+                return
+            elif ord('1') <= k <= ord('9'):
+                i = k - ord('1')
+                if i < len(MENU):
+                    result['action'] = MENU[i][1]
+                    result['idx'] = i
+                    return
+            elif k == ord('0'):
+                result['action'] = 'quit'
+                result['idx'] = len(MENU) - 1
+                return
+
+    curses.wrapper(_main)
+    return result.get('action'), result.get('idx', initial_idx)
+
+
+def run_menu(ctl, streamer, cfg):
+    actions = {
+        "login": lambda: action_login(ctl),
+        "status": lambda: action_status(ctl),
+        "update": lambda: action_update(ctl),
+        "start": lambda: action_start(ctl, streamer, cfg),
+        "show": lambda: action_show_stream(streamer),
+        "stop": lambda: action_stop(ctl, streamer),
+        "settings": lambda: action_settings(cfg),
+        "check": lambda: action_check(cfg),
+        "logout": lambda: action_logout(ctl),
+    }
+    idx = 0
+    while True:
+        action, idx = curses_menu(streamer, idx)
+        if action == "quit":
+            if streamer.alive():
+                print(yellow("还在推流，确定退出？会自动停止推流但不主动下播。"))
+                ans = input(bold("退出并停止推流？（y/N）：") + " ").strip().lower()
+                if ans != "y":
+                    continue
+                streamer.stop()
+                streamer.release_portal()
+            print("已退出")
+            break
+        if action and action in actions:
+            try:
+                actions[action]()
+            except ToolError as exc:
+                print(red("出错：%s" % exc.message))
+                if exc.hint:
+                    print(yellow("  " + exc.hint))
+            except KeyboardInterrupt:
+                print("\n已取消。")
+            # 暂停，让用户看清输出后再回菜单
+            try:
+                input(bold("\n按回车返回菜单…") + " ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+
+
+# ---------------------------------------------------------------------------
+# 入口
+# ---------------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="ZEK-blv",
+        description="在 Linux (Wayland/niri) 上开 B 站直播的交互式工具",
+    )
+    parser.add_argument("--check", action="store_true", help="自检依赖与环境后退出")
+    parser.add_argument("--version", action="version", version=__version__)
+    args = parser.parse_args(argv)
+
+    cfg = load_config()
+
+    if args.check:
+        action_check(cfg)
+        return 0
+
+    script = find_script(cfg)
+    if not script:
+        print(red("喂，你这家伙挪文件挪的很开心嘛"))
+        print(yellow("给我把它放到正确路径啊（恼）"))
+        print(yellow("改之前设环境变量也可以： BILI_LIVE_STREAM_BIN=/path/to/script"))
+        print(yellow("先用 --check 查看详情罢（无慈悲）"))
+        return 1
+
+    ctl = BiliControl(script)
+    streamer = Streamer()
+
+    try:
+        run_menu(ctl, streamer, cfg)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if streamer.alive():
+            streamer.stop()
+        streamer.release_portal()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

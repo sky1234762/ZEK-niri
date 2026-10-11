@@ -1,0 +1,752 @@
+#!/usr/bin/env python3
+"""ZEK-danmaku —— 实时查看 B 站直播间弹幕
+"""
+
+import argparse
+import base64
+import curses
+import hashlib
+import json
+import os
+import queue
+import socket
+import ssl
+import struct
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+import zlib
+
+try:
+    import brotli
+except ImportError:            # 没有也能跑（服务器会用 zlib）
+    brotli = None
+
+__version__ = "1.0.0"
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0")
+
+CRED_PATH = os.path.expanduser("~/.cache/bilibili-live-stream/credentials.json")
+
+# WBI 签名用的固定重排表
+_MIXIN_TAB = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+    33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+    61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+    36, 20, 34, 44, 52,
+]
+
+
+class ToolError(Exception):
+    def __init__(self, message, hint=None):
+        super().__init__(message)
+        self.message = message
+        self.hint = hint
+
+
+def c(text, code):
+    if not sys.stdout.isatty():
+        return text
+    return "\033[%sm%s\033[0m" % (code, text)
+
+
+def green(t): return c(t, "32")
+def yellow(t): return c(t, "33")
+def red(t): return c(t, "31")
+def cyan(t): return c(t, "36")
+def bold(t): return c(t, "1")
+
+
+# ---------------------------------------------------------------------------
+# HTTP + WBI 签名
+# ---------------------------------------------------------------------------
+
+def load_cookies():
+    try:
+        with open(CRED_PATH, encoding="utf-8") as f:
+            return dict(json.load(f).get("cookies") or {})
+    except (OSError, ValueError):
+        return {}
+
+
+def cookie_str(cookies):
+    return "; ".join("%s=%s" % (k, v) for k, v in cookies.items() if v)
+
+
+def http_json(url, cookies=None):
+    headers = {
+        "user-agent": UA,
+        "referer": "https://live.bilibili.com/",
+        "accept": "application/json, text/plain, */*",
+    }
+    if cookies:
+        headers["cookie"] = cookie_str(cookies)
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        raw = urllib.request.urlopen(req, timeout=10).read()
+    except Exception as exc:
+        raise ToolError("请求失败: %s (%s)" % (url, exc))
+    enc = ""
+    try:
+        enc = req.headers.get("Content-Encoding", "")
+    except Exception:
+        pass
+    if enc == "gzip":
+        import gzip
+        raw = gzip.decompress(raw)
+    elif enc in ("deflate", "zlib"):
+        raw = zlib.decompress(raw)
+    try:
+        return json.loads(raw.decode("utf-8", "replace"))
+    except ValueError:
+        raise ToolError("接口返回非 JSON: %s" % raw[:200])
+
+
+def get_buvid(cookies):
+    """取 buvid3/buvid4（现代 web 接口风控必需），失败返回 None。"""
+    try:
+        d = http_json("https://api.bilibili.com/x/frontend/finger/spi", cookies)
+        data = d.get("data") or {}
+        return data.get("b_3"), data.get("b_4")
+    except ToolError:
+        return None, None
+
+
+def get_wbi_keys(cookies):
+    """从 nav 接口取 WBI 的 img_key / sub_key。"""
+    d = http_json("https://api.bilibili.com/x/web-interface/nav", cookies)
+    wbi = ((d.get("data") or {}).get("wbi_img")) or {}
+    img = (wbi.get("img_url") or "").rsplit("/", 1)[-1].split(".")[0]
+    sub = (wbi.get("sub_url") or "").rsplit("/", 1)[-1].split(".")[0]
+    if not img or not sub:
+        raise ToolError("拿不到 WBI 密钥")
+    return img, sub
+
+
+def wbi_sign(params, img_key, sub_key):
+    """给参数加上 wts + w_rid 签名。"""
+    mixin = "".join((img_key + sub_key)[i] for i in _MIXIN_TAB)[:32]
+    p = dict(params)
+    p["wts"] = int(time.time())
+    clean = {k: "".join(ch for ch in str(v) if ch not in "!'()*")
+             for k, v in sorted(p.items())}
+    query = urllib.parse.urlencode(clean)
+    p["w_rid"] = hashlib.md5((query + mixin).encode()).hexdigest()
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 最小 WebSocket 客户端（标准库）
+# ---------------------------------------------------------------------------
+
+class WebSocket:
+    def __init__(self, host, port, path, cookies=None, timeout=10):
+        self.host = host
+        self.port = int(port)
+        self.path = path
+        ctx = ssl.create_default_context()
+        self.sock = ctx.wrap_socket(
+            socket.create_connection((host, self.port), timeout=timeout),
+            server_hostname=host)
+        self._handshake(cookies)
+
+    def _handshake(self, cookies):
+        key = base64.b64encode(os.urandom(16)).decode()
+        lines = [
+            "GET %s HTTP/1.1" % self.path,
+            "Host: %s" % self.host,
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            "Sec-WebSocket-Key: %s" % key,
+            "Sec-WebSocket-Version: 13",
+            "Origin: https://live.bilibili.com",
+            "User-Agent: %s" % UA,
+        ]
+        if cookies:
+            lines.append("Cookie: %s" % cookie_str(cookies))
+        self.sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ToolError("WebSocket 握手被断开")
+            buf += chunk
+        head = buf.split(b"\r\n", 1)[0].decode("utf-8", "replace")
+        if "101" not in head:
+            raise ToolError("WebSocket 握手失败: %s" % head)
+
+    def send_binary(self, payload):
+        header = bytearray([0x82])            # FIN + binary
+        n = len(payload)
+        if n < 126:
+            header.append(0x80 | n)
+        elif n < 65536:
+            header.append(0x80 | 126)
+            header += struct.pack(">H", n)
+        else:
+            header.append(0x80 | 127)
+            header += struct.pack(">Q", n)
+        mask = os.urandom(4)
+        header += mask
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(bytes(header) + masked)
+
+    def send_pong(self, payload=b""):
+        header = bytearray([0x8A])            # FIN + pong
+        n = len(payload)
+        header.append(0x80 | n)
+        mask = os.urandom(4)
+        header += mask
+        self.sock.sendall(bytes(header) + bytes(b ^ mask[i % 4]
+                                                for i, b in enumerate(payload)))
+
+    def _recv_exact(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.sock.recv(n - len(buf))
+            if not chunk:
+                raise ConnectionError("连接已关闭")
+            buf += chunk
+        return buf
+
+    def recv_frame(self):
+        """返回 (opcode, payload)。"""
+        b0, b1 = self._recv_exact(2)
+        opcode = b0 & 0x0F
+        length = b1 & 0x7F
+        if length == 126:
+            length = struct.unpack(">H", self._recv_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack(">Q", self._recv_exact(8))[0]
+        mask = self._recv_exact(4) if (b1 & 0x80) else None
+        payload = self._recv_exact(length)
+        if mask:
+            payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        return opcode, payload
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# B 站弹幕协议
+# ---------------------------------------------------------------------------
+
+def encode_packet(op, body=b""):
+    # 总长(4) 头长(2)=16 协议版本(2)=1 操作码(4) 序号(4)=1
+    return struct.pack(">IHHII", 16 + len(body), 16, 1, op, 1) + body
+
+
+def auth_packet(room_id, token, uid, protover=3):
+    body = json.dumps({
+        "uid": uid, "roomid": room_id, "protover": protover,
+        "platform": "web", "type": 2, "key": token,
+    }).encode()
+    return encode_packet(7, body)
+
+
+HEARTBEAT = encode_packet(2, b"[object Object]")
+
+
+def decode_body(ver, body):
+    """按协议版本解压 body，返回若干 (cmd_dict 或 int) 的列表。"""
+    out = []
+    if ver == 0:                                  # JSON
+        try:
+            out.append(json.loads(body.decode("utf-8", "replace")))
+        except ValueError:
+            pass
+    elif ver == 1:                                # int32（人气值）
+        if len(body) >= 4:
+            out.append(struct.unpack(">I", body[:4])[0])
+    elif ver == 2:                                # zlib
+        try:
+            out.extend(decode_packets(zlib.decompress(body)))
+        except zlib.error:
+            pass
+    elif ver == 3:                                # brotli
+        if brotli:
+            try:
+                out.extend(decode_packets(brotli.decompress(body)))
+            except Exception:
+                pass
+    return out
+
+
+def decode_packets(data):
+    """把一个数据块里拼接的多个弹幕包拆开、逐个解析。"""
+    msgs = []
+    off = 0
+    n = len(data)
+    while off + 16 <= n:
+        length, hlen, ver, op, _seq = struct.unpack(">IHHII", data[off:off + 16])
+        if length < 16 or off + length > n:
+            break
+        body = data[off + hlen:off + length]
+        off += length
+        if op == 3:                               # 心跳回复（人气值）
+            if len(body) >= 4:
+                msgs.append(("__popularity__", struct.unpack(">I", body[:4])[0]))
+        elif op == 5:                             # 普通消息
+            msgs.extend(decode_body(ver, body))
+        elif op == 8:                             # 认证回复
+            msgs.append(("__auth__", body))
+    return msgs
+
+
+# ---------------------------------------------------------------------------
+# 消息格式化
+# ---------------------------------------------------------------------------
+
+def format_message(msg):
+    """把一条 cmd 消息转成 (风格, 显示文本)。不认识的返回 None。"""
+    cmd = msg.get("cmd", "")
+    data = msg.get("data")
+
+    if cmd.startswith("DANMU_MSG"):
+        info = msg.get("info") or []
+        try:
+            text = info[1]
+            user = info[2][1]
+        except (IndexError, TypeError):
+            return None
+        return ("danmaku", "%s: %s" % (user, text))
+
+    if cmd == "SEND_GIFT" and isinstance(data, dict):
+        return ("gift", "%s 投喂 %s ×%s"
+                % (data.get("uname", "?"), data.get("giftName", "?"),
+                   data.get("num", 1)))
+
+    if cmd == "SUPER_CHAT_MESSAGE" and isinstance(data, dict):
+        ui = data.get("user_info") or {}
+        return ("sc", "[SC ¥%s] %s: %s"
+                % (data.get("price", 0), ui.get("uname", "?"),
+                   data.get("message", "")))
+
+    if cmd == "SUPER_CHAT_MESSAGE_JPN" and isinstance(data, dict):
+        return None
+
+    if cmd == "INTERACT_WORD" and isinstance(data, dict):
+        kind = {1: "进入直播间", 2: "关注了主播", 3: "分享了直播间"}.get(
+            data.get("msg_type"), "互动")
+        return ("interact", "%s %s" % (data.get("uname", "?"), kind))
+
+    if cmd == "WATCHED_CHANGE" and isinstance(data, dict):
+        return ("__meta_watched", data.get("text_small") or data.get("num"))
+
+    if cmd == "ONLINE_RANK_COUNT" and isinstance(data, dict):
+        return ("__meta_online", data.get("count"))
+
+    if cmd == "ONLINE_RANK_V2" and isinstance(data, dict):
+        return None
+
+    if cmd == "ROOM_REAL_TIME_MESSAGE_UPDATE" and isinstance(data, dict):
+        return ("__meta_fans", data.get("fans"))
+
+    if cmd == "LIVE":
+        return ("system", "★ 直播开始了")
+    if cmd == "PREPARING":
+        return ("system", "· 直播已结束")
+
+    if cmd == "NOTICE_MSG" and isinstance(data, dict):
+        return ("system", str(data.get("msg_common") or data.get("msg_self") or ""))
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 弹幕客户端
+# ---------------------------------------------------------------------------
+
+class DanmakuClient:
+    def __init__(self, room_id, cookies):
+        self.room_id = int(room_id)
+        self.cookies = dict(cookies)
+        self.uid = 0
+        self.token = ""
+        self.host = None
+        self.ws = None
+        self._stop = threading.Event()
+
+    def prepare(self):
+        """取 buvid、WBI、token、弹幕服务器。"""
+        cookies = dict(self.cookies)
+        if cookies:
+            b3, b4 = get_buvid(cookies)
+            if b3:
+                cookies["buvid3"] = b3
+            if b4:
+                cookies["buvid4"] = b4
+            try:
+                self.uid = int(cookies.get("DedeUserID") or 0)
+            except ValueError:
+                self.uid = 0
+        self.cookies = cookies
+
+        img_key, sub_key = get_wbi_keys(cookies)
+        params = wbi_sign({"id": self.room_id, "type": 0}, img_key, sub_key)
+        url = ("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?"
+               + urllib.parse.urlencode(params))
+        d = http_json(url, cookies)
+        if d.get("code") != 0:
+            raise ToolError("getDanmuInfo 失败: %s (%s)"
+                            % (d.get("message"), d.get("code")))
+        data = d.get("data") or {}
+        self.token = data.get("token") or ""
+        hosts = data.get("host_list") or []
+        if not hosts:
+            raise ToolError("没有可用的弹幕服务器")
+        self.host = hosts[0]
+        return self
+
+    def connect(self):
+        h = self.host
+        self.ws = WebSocket(h["host"], h.get("wss_port") or h.get("ws_port") or 443,
+                            "/sub", self.cookies)
+        # 有 brotli 就用 protover=3，否则降级到 protover=2（zlib，标准库）
+        protover = 3 if brotli else 2
+        self.ws.send_binary(auth_packet(self.room_id, self.token, self.uid, protover))
+
+    def stop(self):
+        self._stop.set()
+        if self.ws:
+            self.ws.close()
+
+    def run(self, on_message, on_meta=None, on_raw=None):
+        """接收循环：解包 → 回调。会周期发心跳。直到 stop() 或连接断开。"""
+        assert self.ws is not None
+        import select
+        sock = self.ws.sock
+        sock.settimeout(None)                 # 阻塞模式，用 select 控制等待，避免中途截断帧
+        last_beat = time.time()
+        self.ws.send_binary(HEARTBEAT)
+
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([sock], [], [], 1.0)
+            except (OSError, ValueError):
+                break
+            if not ready:
+                if time.time() - last_beat >= 30:
+                    try:
+                        self.ws.send_binary(HEARTBEAT)
+                    except OSError:
+                        break
+                    last_beat = time.time()
+                continue
+            try:
+                opcode, payload = self.ws.recv_frame()
+            except (ConnectionError, OSError):
+                break
+
+            if opcode == 0x9:                     # ping → pong
+                self.ws.send_pong(payload)
+                continue
+            if opcode == 0x8:                     # close
+                break
+            if opcode != 0x2:                     # 只处理二进制
+                continue
+
+            for item in decode_packets(payload):
+                if isinstance(item, tuple):
+                    key, value = item
+                    if key == "__popularity__":
+                        if on_meta:
+                            on_meta("popularity", value)
+                    elif key == "__auth__":
+                        try:
+                            code = json.loads(value.decode()).get("code")
+                        except ValueError:
+                            code = None
+                        if code not in (0, None):
+                            if on_meta:
+                                on_meta("auth_error", code)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                if on_raw:
+                    on_raw(item)
+                parsed = format_message(item)
+                if not parsed:
+                    continue
+                style, text = parsed
+                if style.startswith("__meta_"):
+                    if on_meta:
+                        on_meta(style[len("__meta_"):], text)
+                elif on_message:
+                    on_message(style, text)
+
+
+# ---------------------------------------------------------------------------
+# 房间信息 / 房号解析
+# ---------------------------------------------------------------------------
+
+def room_info(room_id, cookies):
+    try:
+        d = http_json("https://api.live.bilibili.com/room/v1/Room/get_info?room_id=%d"
+                      % room_id, cookies)
+        return d.get("data") or {}
+    except ToolError:
+        return {}
+
+
+def room_id_by_uid(uid, cookies):
+    d = http_json("https://api.live.bilibili.com/room/v2/Room/room_id_by_uid?uid=%d"
+                  % uid, cookies)
+    return int((d.get("data") or {}).get("room_id") or 0)
+
+
+def resolve_room(args, cookies):
+    if args.room:
+        rid = int(args.room)
+    else:
+        uid = 0
+        try:
+            uid = int(cookies.get("DedeUserID") or 0)
+        except ValueError:
+            uid = 0
+        if not uid:
+            raise ToolError("没有登录凭据，无法确定房间号。",
+                            hint="先跑 ZEK-blv 登录，或用 --room <房号> 指定。")
+        rid = room_id_by_uid(uid, cookies)
+        if not rid:
+            raise ToolError("这个账号还没有直播间。",
+                            hint="先去 https://link.bilibili.com 开通，或用 --room 指定房间。")
+    # 短号 → 真实 room_id（弹幕必须用真实号，否则收不到弹幕）
+    info = room_info(rid, cookies)
+    real = int(info.get("room_id") or rid)
+    return real
+
+
+# ---------------------------------------------------------------------------
+# 纯文本模式
+# ---------------------------------------------------------------------------
+
+STYLE_CODE = {
+    "danmaku": "0",
+    "gift": "33",
+    "sc": "35",
+    "interact": "36",
+    "system": "32",
+}
+
+
+def run_plain(client, info):
+    print(bold("房间 %s" % client.room_id), info.get("title") or "")
+
+    def on_msg(style, text):
+        print("\033[%sm%s\033[0m" % (STYLE_CODE.get(style, "0"), text))
+
+    def on_meta(key, value):
+        pass
+
+    try:
+        client.run(on_msg, on_meta)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        client.stop()
+
+
+# ---------------------------------------------------------------------------
+# curses TUI
+# ---------------------------------------------------------------------------
+
+def run_tui(client, info):
+    lines = []                       # [(style, text)]
+    lock = threading.Lock()
+    inq = queue.Queue()
+    stop = threading.Event()
+    state = {
+        "title": info.get("title") or "",
+        "online": "",
+        "watched": "",
+        "live": info.get("live_status", 0),
+        "count": 0,
+    }
+
+    def on_message(style, text):
+        inq.put(("msg", style, text))
+
+    def on_meta(key, value):
+        inq.put(("meta", key, value))
+
+    def worker():
+        try:
+            client.run(lambda s, t: on_message(s, t), on_meta)
+        except Exception as exc:      # noqa
+            inq.put(("meta", "error", str(exc)))
+        finally:
+            inq.put(("meta", "disconnected", True))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    def draw(stdscr, scroll):
+        h, w = stdscr.getmaxyx()
+        stdscr.erase()
+        live = "直播中" if state["live"] == 1 else "未开播"
+        top = " %s · %s · 在线 %s · 已收 %d 条 " % (
+            state["title"][:24], live, state["online"] or "-", state["count"])
+        try:
+            stdscr.addstr(0, 0, top[:w - 1], curses.A_BOLD | curses.A_REVERSE)
+        except curses.error:
+            pass
+        body_h = h - 2
+        end = len(lines) - scroll
+        start = max(0, end - body_h)
+        shown = lines[start:end]
+        for i, (style, text) in enumerate(shown):
+            color = {"danmaku": 1, "gift": 2, "sc": 3,
+                     "interact": 4, "system": 5, "error": 3}.get(style, 1)
+            try:
+                stdscr.addstr(1 + i, 0, text[:w - 1],
+                              curses.color_pair(color))
+            except curses.error:
+                pass
+        hint = " q 退出   ↑/↓ PgUp/PgDn 滚动   End 回底部"
+        if scroll:
+            hint = " [已上滚 %d 行]" % scroll + hint
+        try:
+            stdscr.addstr(h - 1, 0, hint[:w - 1], curses.A_DIM)
+        except curses.error:
+            pass
+        stdscr.refresh()
+
+    def _main(stdscr):
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_WHITE, -1)
+        curses.init_pair(2, curses.COLOR_YELLOW, -1)
+        curses.init_pair(3, curses.COLOR_MAGENTA, -1)
+        curses.init_pair(4, curses.COLOR_CYAN, -1)
+        curses.init_pair(5, curses.COLOR_GREEN, -1)
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        stdscr.timeout(80)
+        scroll = 0
+        while not stop.is_set():
+            # 收消息
+            got = 0
+            while got < 1000:
+                try:
+                    item = inq.get_nowait()
+                except queue.Empty:
+                    break
+                got += 1
+                if item[0] == "msg":
+                    _, style, text = item
+                    with lock:
+                        lines.append((style, text))
+                        state["count"] += 1
+                    if not scroll:
+                        pass
+                else:
+                    _, key, value = item
+                    if key == "online":
+                        state["online"] = value
+                    elif key == "watched":
+                        state["watched"] = value
+                    elif key == "popularity":
+                        state["online"] = value
+                    elif key == "error":
+                        with lock:
+                            lines.append(("error", "!! %s" % value))
+                    elif key == "disconnected":
+                        with lock:
+                            lines.append(("system", "· 连接已断开（按 q 退出）"))
+            with lock:
+                if len(lines) > 3000:
+                    del lines[:len(lines) - 3000]
+            draw(stdscr, scroll)
+            k = stdscr.getch()
+            if k in (ord('q'), ord('Q')):
+                break
+            elif k == curses.KEY_UP:
+                scroll = min(scroll + 1, max(0, len(lines) - 1))
+            elif k == curses.KEY_DOWN:
+                scroll = max(scroll - 1, 0)
+            elif k == curses.KEY_PPAGE:
+                hh, _ = stdscr.getmaxyx()
+                scroll = min(scroll + max(1, hh - 2), max(0, len(lines) - 1))
+            elif k == curses.KEY_NPAGE:
+                hh, _ = stdscr.getmaxyx()
+                scroll = max(scroll - max(1, hh - 2), 0)
+            elif k == curses.KEY_END:
+                scroll = 0
+
+    try:
+        curses.wrapper(_main)
+    finally:
+        stop.set()
+        client.stop()
+
+
+# ---------------------------------------------------------------------------
+# 入口
+# ---------------------------------------------------------------------------
+
+def main(argv=None):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # 便于管道/日志实时看到文本
+    except Exception:
+        pass
+    parser = argparse.ArgumentParser(
+        prog="ZEK-danmaku",
+        description="实时查看 B 站直播间弹幕（纯标准库实现）",
+    )
+    parser.add_argument("--room", help="房间号（默认当前登录账号的直播间）")
+    parser.add_argument("--plain", action="store_true",
+                        help="纯文本逐行输出，不用全屏 TUI")
+    parser.add_argument("--version", action="version", version=__version__)
+    args = parser.parse_args(argv)
+
+    cookies = load_cookies()
+    try:
+        room = resolve_room(args, cookies)
+    except ToolError as exc:
+        print(red("错误：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        return 1
+
+    info = room_info(room, cookies)
+    client = DanmakuClient(room, cookies)
+    try:
+        client.prepare()
+    except ToolError as exc:
+        print(red("错误：%s" % exc.message))
+        if exc.hint:
+            print(yellow("  " + exc.hint))
+        return 1
+    try:
+        client.connect()
+    except ToolError as exc:
+        print(red("连接弹幕服务器失败：%s" % exc.message))
+        return 1
+
+    print("已连接弹幕服务器 %s · 房间 %s%s"
+          % (client.host["host"], room,
+             "（游客）" if not client.uid else ""))
+    if not brotli:
+        print(yellow("提示：未装 brotli，已用 zlib 兼容模式。"))
+
+    if args.plain:
+        run_plain(client, info)
+        return 0
+
+    run_tui(client, info)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

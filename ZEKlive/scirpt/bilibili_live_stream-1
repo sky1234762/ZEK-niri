@@ -1,0 +1,1612 @@
+#!/usr/bin/env python3
+# 显示名称：哔哩哔哩直播控制
+# Description: Control a Bilibili live room. status and areas are read-only; update changes title and/or area atomically; start goes live and returns the RTMP address and stream key; stop ends it; login/logout manage credentials. Areas accept a Chinese name, pinyin or 'parent/child' and are resolved to an id; an ambiguous one fails with candidates in error.detail.candidates. WARNING: start makes the room public at once and notifies followers, and cannot be silently undone — get the user's explicit consent first; update during a stream is visible to viewers immediately. Not logged in returns kind=auth: walk the user through login (two-step QR code written as a PNG whose path is returned).
+# 描述：控制哔哩哔哩直播间：改标题分区、开播拿推流码、下播、扫码登录。
+# Timeout: 120
+# Group: streaming
+# Parameters:
+# {
+#   "type": "object",
+#   "properties": {
+#     "command": {
+#       "type": "string",
+#       "enum": [
+#         "status",
+#         "areas",
+#         "update",
+#         "start",
+#         "stop",
+#         "login",
+#         "logout"
+#       ]
+#     },
+#     "title": {
+#       "type": "string",
+#       "description": "update, or applied before going live with start."
+#     },
+#     "area": {
+#       "type": "string",
+#       "description": "Same timing as title. Id (371), child name (虚拟日常), pinyin or 虚拟主播/虚拟日常."
+#     },
+#     "search": {
+#       "type": "string",
+#       "description": "areas: keyword matched against child names, pinyin and parent names."
+#     },
+#     "parent": {
+#       "type": "string",
+#       "description": "areas: only this parent's children, by name or id."
+#     },
+#     "refresh": {
+#       "type": "boolean",
+#       "description": "areas: refetch instead of using the one-day cache."
+#     },
+#     "cookie": {
+#       "type": "string",
+#       "description": "login: browser cookies like \"SESSDATA=..; bili_jct=..\" instead of the QR flow."
+#     },
+#     "json": {
+#       "type": "boolean",
+#       "description": "Full JSON instead of the compact text summary."
+#     }
+#   },
+#   "required": [
+#     "command"
+#   ],
+#   "additionalProperties": false
+# }
+
+"""哔哩哔哩直播控制工具（面向 AI 调用设计）。
+
+命令一览：
+
+  login    登录，需要调用两次，每次都是秒回、绝不阻塞：
+           第一次 → 生成二维码图片，返回 status=pending 和图片路径 qr_image。
+                    把这张图片交给用户，让他用哔哩哔哩 App 扫码并在手机上确认。
+           第二次 → 用户说扫完之后再调一次，返回 status=success 完成登录。
+                    要是用户其实还没扫完，会返回 status=waiting，二维码不变，
+                    等他扫完再调一次即可。
+           已经登录时直接返回 status=already_logged_in，不产生任何副作用。
+           （之所以不做成一次调用等着用户扫，是因为阻塞的命令会把整个工具调用
+             卡住几十秒，期间你既看不到输出、也没法把二维码递给用户。真需要
+             阻塞等待可以加 --wait 秒数，但那只适合有人盯着实时终端的场景。）
+  logout   删除本地凭据。
+  status   查询直播间状态（房间号、标题、分区、是否在播）。只读。
+  areas    查分区。不带参数只列父分区；--search 关键词 在全部子分区里搜；
+           --parent 父分区 列出它下面的子分区。只读，且不需要登录。
+  update   改直播间设置：--title 改直播标题，--area 改分区，两个可以一起给
+           （一起给是一次请求，要么全成要么全不成；分开连着调会被限流）。
+           分区写法随意：数字 id、子分区名（"虚拟日常"）、拼音（"xunirichang"）、
+           或"父分区/子分区"（"虚拟主播/虚拟日常"）消歧。
+           改动对已经在播的直播间也立刻生效。
+  start    开播，返回推流地址与推流码。也接受 --title / --area，顺手改了再开。
+           ★ 副作用：直播间立刻对外可见、粉丝会收到开播推送。这是不可静默撤销的
+             对外动作，调用前必须获得用户明确同意。
+  stop     下播。
+
+输出：默认是精简纯文本摘要（只给最要紧的信息，省 token，不带任何 markdown 修饰）；
+      要完整结构化数据加 --json，成功为 {"ok":true,"command":...,"data":{...}}，
+      失败为 {"ok":false,"command":...,"error":{...}}。
+      两种模式都写 stdout，成功退出码 0，失败退出码 1。
+
+分区名解析不出唯一结果时会报 usage 错误，候选列在 error.detail.candidates 里，
+拿去问用户或直接改用 id 重试即可。分区列表缓存一天，加 --refresh 强制刷新。
+有些分区（比如虚拟主播区）要账号做过人脸认证才能用，改过去会拿到 api 错误
+60024/60043；这时只能换分区，或者让用户先去 App 里认证。改直播间设置有频率限制，
+撞上 code -1「操作太频繁」等十几秒重试即可。
+
+error.kind 是稳定的分支依据：
+  auth                没登录或登录态失效        → 引导用户跑 login
+  verify_required     开播需 App 扫码验证 (60024) → 图片在 error.detail.qr_image
+  face_auth_required  开播需人脸认证 (60043)      → 图片在 error.detail.qr_image
+  usage / api / network / http
+
+需要展示给用户的二维码一律写成 PNG 文件并返回路径，由你决定怎么呈现给用户，
+脚本自己不会往终端画任何图形。
+
+凭据存在缓存目录（默认 ~/.cache/bilibili-live-stream/credentials.json，权限 0600），
+只由 login 写入、logout 删除，没有别的来源。分区列表缓存在同目录的 areas.json，
+删了只会多一次请求。推流码是敏感凭据，不要转发给第三方服务。
+
+逻辑取自 bili-live-hime https://github.com/Rsplwe/bili-live-hime
+（APP 签名见 src/lib/app-sign.ts，开播与改标题/改分区见 src/api/live.ts 的
+startLive / updateRoomTitle / updateRoomArea，界面流程见
+src/view/live-stream-settings.tsx）。只依赖 Python 标准库，Python ≥ 3.8。
+"""
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+import platform
+import string
+import struct
+import sys
+import time
+import zlib
+from urllib import error as urlerror
+from urllib import parse as urlparse
+from urllib import request as urlrequest
+
+__version__ = "3.1.0"
+
+# src/lib/app-sign.ts —— 直播姬 (bilibili link) 的 appkey / appsec
+APP_KEY = "aae92bc66f3edfab"
+APP_SEC = "af125a0d5279fd576c1b4418a3e8276d"
+
+# src/lib/api.ts
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+)
+COMMON_HEADERS = {
+    "accept": "*/*",
+    "user-agent": USER_AGENT,
+    "sec-ch-ua": '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
+}
+
+LIVE_BASE = "https://api.live.bilibili.com"
+MAIN_BASE = "https://api.bilibili.com"
+PASSPORT_BASE = "https://passport.bilibili.com"
+
+APP_NAME = "bilibili-live-stream"
+LEGACY_APP_NAME = "bilibili-stream-key"   # 脚本改名前用的缓存目录名
+TIMEOUT = 15.0
+QR_TTL = 180                       # B 站登录二维码的有效期（秒）
+AREA_TTL = 24 * 3600               # 分区列表基本不动，缓存一天
+AREA_LIST_LIMIT = 60               # 单次最多列这么多子分区，免得刷屏
+LIVE_STATUS_TEXT = {0: "未开播", 1: "直播中", 2: "轮播中"}
+REQUIRED_COOKIES = ("SESSDATA", "bili_jct")
+
+
+class ToolError(Exception):
+    """所有可预期的失败。kind 给调用方分支，hint 给人看。"""
+
+    def __init__(self, kind, message, hint=None, code=None, detail=None):
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+        self.hint = hint
+        self.code = code
+        self.detail = detail
+
+    def to_dict(self):
+        out = {"kind": self.kind, "message": self.message}
+        if self.code is not None:
+            out["code"] = self.code
+        if self.hint:
+            out["hint"] = self.hint
+        if self.detail:
+            out["detail"] = self.detail
+        return out
+
+
+class ApiError(ToolError):
+    HINTS = {
+        -101: "登录态已失效，让用户重新跑一次 login。",
+        -111: "csrf 校验失败，让用户重新跑一次 login。",
+        -1: "改直播间设置太频繁了，等十几秒再试。",
+        60009: "分区不存在。先用 areas 查一个有效的分区。",
+        60024: "这个分区要人脸认证才能用。换一个分区，或让用户先在 App 里认证。",
+        60043: "这个分区要人脸认证才能用。换一个分区，或让用户先在 App 里认证。",
+        60013: "非法请求（签名或版本号异常）。",
+    }
+
+    def __init__(self, code, message):
+        super().__init__(
+            "auth" if code in (-101, -111) else "api",
+            "接口返回错误: %s (%s)" % (message, code),
+            hint=self.HINTS.get(code), code=code)
+
+
+# ---------------------------------------------------------------------------
+# 表单序列化与 APP 签名（对齐 JS URLSearchParams 的行为）
+# ---------------------------------------------------------------------------
+
+_FORM_SAFE = frozenset(string.ascii_letters + string.digits + "*-._")
+
+
+def form_escape(value):
+    out = []
+    for byte in str(value).encode("utf-8"):
+        char = chr(byte)
+        if byte < 128 and char in _FORM_SAFE:
+            out.append(char)
+        elif char == " ":
+            out.append("+")
+        else:
+            out.append("%%%02X" % byte)
+    return "".join(out)
+
+
+def urlencode_pairs(pairs):
+    return "&".join("%s=%s" % (form_escape(k), form_escape(v)) for k, v in pairs)
+
+
+def app_sign(params):
+    """src/lib/app-sign.ts：追加 appkey → 按 key 排序 → md5(表单串 + appsec)。"""
+    merged = {k: str(v) for k, v in params.items() if v is not None}
+    merged["appkey"] = APP_KEY
+    query = urlencode_pairs(sorted(merged.items(), key=lambda kv: kv[0]))
+    return "%s&sign=%s" % (query, hashlib.md5((query + APP_SEC).encode()).hexdigest())
+
+
+def _stringify(mapping):
+    return {k: str(v) for k, v in mapping.items() if v is not None}
+
+
+# ---------------------------------------------------------------------------
+# HTTP
+# ---------------------------------------------------------------------------
+
+
+def _decode_body(encoding, raw):
+    encoding = (encoding or "").lower().strip()
+    if encoding == "gzip":
+        return gzip.decompress(raw).decode("utf-8", "replace")
+    if encoding in ("deflate", "zlib"):
+        try:
+            return zlib.decompress(raw).decode("utf-8", "replace")
+        except zlib.error:
+            return zlib.decompress(raw, -zlib.MAX_WBITS).decode("utf-8", "replace")
+    if encoding and encoding != "identity":
+        raise ToolError("http", "不支持的 Content-Encoding: %s" % encoding)
+    return raw.decode("utf-8", "replace")
+
+
+class BiliClient:
+    def __init__(self, cookies=None, verbose=False):
+        self.cookies = dict(cookies or {})
+        self.cookies_changed = False
+        self.verbose = verbose
+
+    @property
+    def csrf(self):
+        return self.cookies.get("bili_jct", "")
+
+    def logged_in(self):
+        return all(self.cookies.get(name) for name in REQUIRED_COOKIES)
+
+    def _absorb_cookies(self, headers):
+        for raw in headers.get_all("Set-Cookie") or []:
+            first = raw.split(";", 1)[0].strip()
+            if "=" not in first:
+                continue
+            name, value = (part.strip() for part in first.split("=", 1))
+            if not name or not value or value.lower() in ("deleted", "null"):
+                continue
+            if self.cookies.get(name) != value:
+                self.cookies[name] = value
+                self.cookies_changed = True
+
+    def call(self, base, path, method="GET", params=None, data=None,
+             headers=None, sign=None, raw=False):
+        """sign: None | "query"（签名进 query） | "body"（签名进表单）。"""
+        if sign == "query":
+            query = "?" + app_sign(params or {})
+        elif params:
+            query = "?" + urlencode_pairs(list(_stringify(params).items()))
+        else:
+            query = ""
+
+        url = base + path + query
+        request_headers = dict(COMMON_HEADERS)
+        if headers:
+            request_headers.update(headers)
+        if self.cookies:
+            request_headers["cookie"] = "; ".join(
+                "%s=%s" % (k, v) for k, v in self.cookies.items())
+
+        body = None
+        if data is not None and method != "GET":
+            payload = _stringify(data)
+            request_headers["content-type"] = (
+                "application/x-www-form-urlencoded; charset=UTF-8")
+            body = (app_sign(payload) if sign == "body"
+                    else urlencode_pairs(list(payload.items()))).encode("utf-8")
+
+        if self.verbose:
+            print("[bili] %s %s" % (method, url), file=sys.stderr)
+
+        request = urlrequest.Request(url, data=body, method=method, headers=request_headers)
+        try:
+            response = urlrequest.urlopen(request, timeout=TIMEOUT)
+        except urlerror.HTTPError as exc:
+            response = exc
+        except urlerror.URLError as exc:
+            raise ToolError("network", "请求失败: %s (%s)" % (url, exc.reason))
+        except TimeoutError:
+            raise ToolError("network", "请求超时: %s" % url)
+
+        with response:
+            status = getattr(response, "status", None) or getattr(response, "code", 0)
+            text = _decode_body(response.headers.get("Content-Encoding"), response.read())
+            self._absorb_cookies(response.headers)
+
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            raise ToolError("http", "接口返回非 JSON (HTTP %s): %s" % (status, text[:200]))
+
+        if raw:
+            return payload
+        if payload.get("code") != 0 or payload.get("data") is None:
+            raise ApiError(payload.get("code"),
+                           payload.get("message") or payload.get("msg") or "Unknown Error")
+        return payload["data"]
+
+    # -- 接口（对应 bili-live-hime 的 src/api/*.ts）---------------------------
+
+    def nav(self):
+        return self.call(MAIN_BASE, "/x/web-interface/nav", headers={"origin": MAIN_BASE})
+
+    def room_id_by_uid(self, uid):
+        data = self.call(LIVE_BASE, "/room/v2/Room/room_id_by_uid",
+                         params={"uid": uid}, headers={"origin": LIVE_BASE})
+        return int(data["room_id"])
+
+    def room_info(self, room_id):
+        return self.call(LIVE_BASE, "/room/v1/Room/get_info",
+                         params={"room_id": room_id}, headers={"origin": LIVE_BASE})
+
+    def live_version(self):
+        return self.call(
+            LIVE_BASE, "/xlive/app-blink/v1/liveVersionInfo/getHomePageLiveVersion",
+            params={"system_version": "2", "ts": str(int(time.time() * 1000))},
+            sign="query", headers={"origin": LIVE_BASE})
+
+    def area_list(self):
+        """src/api/live.ts getAreaList：父分区数组，每个带 list 子分区。"""
+        return self.call(LIVE_BASE, "/room/v1/Area/getList",
+                         params={"show_pinyin": "1"}, headers={"origin": LIVE_BASE})
+
+    def update_room(self, room_id, title=None, area_id=None):
+        """src/api/live.ts 的 updateRoomTitle / updateRoomArea 打的是同一个接口，
+        这里合成一次发：连着发两次 update，第二次会被 B 站挡成"操作太频繁"(-1)。"""
+        data = {"room_id": str(room_id), "platform": "pc_link",
+                "csrf": self.csrf, "csrf_token": self.csrf}
+        if title is not None:
+            data["title"] = title
+        if area_id is not None:
+            data["area_id"] = str(area_id)
+        return self.call(LIVE_BASE, "/room/v1/Room/update", method="POST",
+                         data=data, headers={"origin": LIVE_BASE})
+
+    def start_live(self, room_id, area_v2, version, build):
+        return self.call(
+            LIVE_BASE, "/room/v1/Room/startLive", method="POST",
+            data={"room_id": str(room_id), "platform": "pc_link", "backup_stream": "0",
+                  "csrf": self.csrf, "csrf_token": self.csrf, "area_v2": str(area_v2),
+                  "version": str(version), "build": str(build),
+                  "ts": str(int(time.time() * 1000))},
+            headers={"origin": LIVE_BASE}, sign="body",
+            raw=True)  # 60024 / 60043 要看原始 code
+
+    def stop_live(self, room_id):
+        return self.call(LIVE_BASE, "/room/v1/Room/stopLive", method="POST",
+                         data={"room_id": str(room_id), "platform": "pc_link",
+                               "csrf": self.csrf, "csrf_token": self.csrf},
+                         headers={"origin": LIVE_BASE})
+
+    def qrcode_generate(self):
+        return self.call(PASSPORT_BASE, "/x/passport-login/web/qrcode/generate",
+                         headers={"origin": PASSPORT_BASE})
+
+    def qrcode_poll(self, qrcode_key):
+        return self.call(PASSPORT_BASE, "/x/passport-login/web/qrcode/poll",
+                         params={"qrcode_key": qrcode_key},
+                         headers={"origin": PASSPORT_BASE})
+
+
+# ---------------------------------------------------------------------------
+# 二维码（纯标准库；只生成 PNG 文件，不往终端画）
+# ---------------------------------------------------------------------------
+
+# (版本, 纠错等级) -> (每块纠错码字数, [(块数, 每块数据码字数), ...])
+_QR_BLOCKS = {
+    (1, "L"): (7, [(1, 19)]),   (1, "M"): (10, [(1, 16)]),
+    (1, "Q"): (13, [(1, 13)]),  (1, "H"): (17, [(1, 9)]),
+    (2, "L"): (10, [(1, 34)]),  (2, "M"): (16, [(1, 28)]),
+    (2, "Q"): (22, [(1, 22)]),  (2, "H"): (28, [(1, 16)]),
+    (3, "L"): (15, [(1, 55)]),  (3, "M"): (26, [(1, 44)]),
+    (3, "Q"): (18, [(2, 17)]),  (3, "H"): (22, [(2, 13)]),
+    (4, "L"): (20, [(1, 80)]),  (4, "M"): (18, [(2, 32)]),
+    (4, "Q"): (26, [(2, 24)]),  (4, "H"): (16, [(4, 9)]),
+    (5, "L"): (26, [(1, 108)]), (5, "M"): (24, [(2, 43)]),
+    (5, "Q"): (18, [(2, 15), (2, 16)]), (5, "H"): (22, [(2, 11), (2, 12)]),
+    (6, "L"): (18, [(2, 68)]),  (6, "M"): (16, [(4, 27)]),
+    (6, "Q"): (24, [(4, 19)]),  (6, "H"): (28, [(4, 15)]),
+    (7, "L"): (20, [(2, 78)]),  (7, "M"): (18, [(4, 31)]),
+    (7, "Q"): (18, [(2, 14), (4, 15)]), (7, "H"): (26, [(4, 13), (1, 14)]),
+    (8, "L"): (24, [(2, 97)]),  (8, "M"): (22, [(2, 38), (2, 39)]),
+    (8, "Q"): (22, [(4, 18), (2, 19)]), (8, "H"): (26, [(4, 14), (2, 15)]),
+    (9, "L"): (30, [(2, 116)]), (9, "M"): (22, [(3, 36), (2, 37)]),
+    (9, "Q"): (20, [(4, 16), (4, 17)]), (9, "H"): (24, [(4, 12), (4, 13)]),
+    (10, "L"): (18, [(2, 68), (2, 69)]), (10, "M"): (26, [(4, 43), (1, 44)]),
+    (10, "Q"): (24, [(6, 19), (2, 20)]), (10, "H"): (28, [(6, 15), (2, 16)]),
+}
+
+_QR_ALIGN = {
+    1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
+    6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+}
+
+_QR_FORMAT_BITS = {"L": 0b01, "M": 0b00, "Q": 0b11, "H": 0b10}
+_QR_MAX_VERSION = 10
+
+
+class QRError(Exception):
+    pass
+
+
+# -- GF(256) 与 Reed-Solomon ------------------------------------------------
+
+_GF_EXP = [0] * 512
+_GF_LOG = [0] * 256
+
+
+def _gf_init():
+    value = 1
+    for i in range(255):
+        _GF_EXP[i] = value
+        _GF_LOG[value] = i
+        value <<= 1
+        if value & 0x100:
+            value ^= 0x11D
+    for i in range(255, 512):
+        _GF_EXP[i] = _GF_EXP[i - 255]
+
+
+_gf_init()
+
+
+def _gf_mul(a, b):
+    if a == 0 or b == 0:
+        return 0
+    return _GF_EXP[_GF_LOG[a] + _GF_LOG[b]]
+
+
+def _rs_generator(degree):
+    poly = [1]
+    for i in range(degree):
+        nxt = [0] * (len(poly) + 1)
+        for j, coef in enumerate(poly):
+            nxt[j] ^= coef
+            nxt[j + 1] ^= _gf_mul(coef, _GF_EXP[i])
+        poly = nxt
+    return poly
+
+
+def _rs_encode(data, ec_len):
+    generator = _rs_generator(ec_len)
+    remainder = [0] * ec_len
+    for byte in data:
+        factor = byte ^ remainder[0]
+        remainder = remainder[1:] + [0]
+        for i in range(ec_len):
+            remainder[i] ^= _gf_mul(generator[i + 1], factor)
+    return remainder
+
+
+# -- 码字编排 ---------------------------------------------------------------
+
+
+def _pick_version(length, level):
+    for version in range(1, _QR_MAX_VERSION + 1):
+        _, blocks = _QR_BLOCKS[(version, level)]
+        total = sum(count * size for count, size in blocks)
+        header = 4 + (8 if version <= 9 else 16)
+        if header + length * 8 <= total * 8:
+            return version
+    raise QRError("内容过长（%d 字节），超出版本 %d-%s 的容量"
+                  % (length, _QR_MAX_VERSION, level))
+
+
+def _encode_codewords(payload, version, level):
+    ec_per_block, blocks = _QR_BLOCKS[(version, level)]
+    total_data = sum(count * size for count, size in blocks)
+
+    bits = []
+
+    def put(value, length):
+        for i in range(length - 1, -1, -1):
+            bits.append((value >> i) & 1)
+
+    put(0b0100, 4)                                   # 8 位字节模式
+    put(len(payload), 8 if version <= 9 else 16)     # 字符数
+    for byte in payload:
+        put(byte, 8)
+    put(0, min(4, total_data * 8 - len(bits)))       # 终止符
+    while len(bits) % 8:
+        bits.append(0)
+
+    data = bytearray()
+    for i in range(0, len(bits), 8):
+        byte = 0
+        for bit in bits[i:i + 8]:
+            byte = (byte << 1) | bit
+        data.append(byte)
+    for i in range(total_data - len(data)):
+        data.append(0xEC if i % 2 == 0 else 0x11)    # 填充码字
+
+    data_blocks, ec_blocks, pos = [], [], 0
+    for count, size in blocks:
+        for _ in range(count):
+            chunk = data[pos:pos + size]
+            pos += size
+            data_blocks.append(chunk)
+            ec_blocks.append(_rs_encode(chunk, ec_per_block))
+
+    result = bytearray()
+    for i in range(max(len(b) for b in data_blocks)):
+        for block in data_blocks:
+            if i < len(block):
+                result.append(block[i])
+    for i in range(ec_per_block):
+        for block in ec_blocks:
+            result.append(block[i])
+    return result
+
+
+# -- 矩阵 -------------------------------------------------------------------
+
+
+def _draw_function_patterns(modules, reserved, version, size):
+    def finder(row, col):
+        for r in range(-1, 8):
+            for c in range(-1, 8):
+                rr, cc = row + r, col + c
+                if not (0 <= rr < size and 0 <= cc < size):
+                    continue
+                dark = (
+                    (0 <= r <= 6 and c in (0, 6))
+                    or (0 <= c <= 6 and r in (0, 6))
+                    or (2 <= r <= 4 and 2 <= c <= 4)
+                )
+                modules[rr][cc] = 1 if dark else 0
+                reserved[rr][cc] = True
+
+    finder(0, 0)
+    finder(0, size - 7)
+    finder(size - 7, 0)
+
+    for i in range(size):                             # 定位图形
+        if not reserved[6][i]:
+            modules[6][i] = 1 if i % 2 == 0 else 0
+            reserved[6][i] = True
+        if not reserved[i][6]:
+            modules[i][6] = 1 if i % 2 == 0 else 0
+            reserved[i][6] = True
+
+    centers = _QR_ALIGN[version]                      # 校正图形
+    last = len(centers) - 1
+    for i, row in enumerate(centers):
+        for j, col in enumerate(centers):
+            # 只跳过与三个定位图形重叠的角，落在定位图形（timing）行列上的要照画
+            if (i, j) in ((0, 0), (0, last), (last, 0)):
+                continue
+            for dr in range(-2, 3):
+                for dc in range(-2, 3):
+                    modules[row + dr][col + dc] = 0 if max(abs(dr), abs(dc)) == 1 else 1
+                    reserved[row + dr][col + dc] = True
+
+    modules[size - 8][8] = 1                          # 固定的暗模块
+    reserved[size - 8][8] = True
+
+    for i in range(9):                                # 预留格式信息区
+        if i != 6:
+            reserved[i][8] = True
+            reserved[8][i] = True
+    for i in range(8):
+        reserved[8][size - 1 - i] = True
+        reserved[size - 1 - i][8] = True
+
+    if version >= 7:                                  # 预留版本信息区
+        for i in range(18):
+            a, b = size - 11 + i % 3, i // 3
+            reserved[b][a] = True
+            reserved[a][b] = True
+
+
+def _place_data(modules, reserved, data, size):
+    index = 0
+    total = len(data) * 8
+    right = size - 1
+    while right >= 1:
+        if right == 6:
+            right = 5
+        for vert in range(size):
+            for j in range(2):
+                col = right - j
+                upward = ((right + 1) & 2) == 0
+                row = (size - 1 - vert) if upward else vert
+                if reserved[row][col] or index >= total:
+                    continue
+                modules[row][col] = (data[index >> 3] >> (7 - (index & 7))) & 1
+                index += 1
+        right -= 2
+
+
+def _mask_bit(mask, row, col):
+    if mask == 0:
+        return (row + col) % 2 == 0
+    if mask == 1:
+        return row % 2 == 0
+    if mask == 2:
+        return col % 3 == 0
+    if mask == 3:
+        return (row + col) % 3 == 0
+    if mask == 4:
+        return (row // 2 + col // 3) % 2 == 0
+    if mask == 5:
+        return (row * col) % 2 + (row * col) % 3 == 0
+    if mask == 6:
+        return ((row * col) % 2 + (row * col) % 3) % 2 == 0
+    return ((row + col) % 2 + (row * col) % 3) % 2 == 0
+
+
+def _draw_format(modules, level, mask, size):
+    data = (_QR_FORMAT_BITS[level] << 3) | mask
+    rem = data
+    for _ in range(10):
+        rem = (rem << 1) ^ ((rem >> 9) * 0x537)
+    value = ((data << 10) | rem) ^ 0x5412
+
+    def bit(i):
+        return (value >> i) & 1
+
+    for i in range(6):
+        modules[i][8] = bit(i)
+    modules[7][8] = bit(6)
+    modules[8][8] = bit(7)
+    modules[8][7] = bit(8)
+    for i in range(9, 15):
+        modules[8][14 - i] = bit(i)
+    for i in range(8):
+        modules[8][size - 1 - i] = bit(i)
+    for i in range(8, 15):
+        modules[size - 15 + i][8] = bit(i)
+    modules[size - 8][8] = 1
+
+
+def _draw_version(modules, version, size):
+    if version < 7:
+        return
+    rem = version
+    for _ in range(12):
+        rem = (rem << 1) ^ ((rem >> 11) * 0x1F25)
+    value = (version << 12) | rem
+    for i in range(18):
+        bit = (value >> i) & 1
+        a, b = size - 11 + i % 3, i // 3
+        modules[b][a] = bit
+        modules[a][b] = bit
+
+
+def _finder_history_add(run, history, size):
+    if history[0] == 0:
+        run += size                    # 符号外一律当作浅色边界
+    history.pop()
+    history.insert(0, run)
+
+
+def _finder_history_count(history):
+    """数 1:1:3:1:1 且一侧有 4 倍浅色的取景图形样式（可按比例放大）。"""
+    n = history[1]
+    core = (n > 0 and history[2] == n and history[3] == n * 3
+            and history[4] == n and history[5] == n)
+    return ((1 if core and history[0] >= n * 4 and history[6] >= n else 0)
+            + (1 if core and history[6] >= n * 4 and history[0] >= n else 0))
+
+
+def _penalty(modules, size):
+    """ISO/IEC 18004 的四条掩码评分规则。"""
+    score = 0
+    lines = [row[:] for row in modules]
+    lines += [[modules[r][c] for r in range(size)] for c in range(size)]
+
+    for line in lines:
+        run_color, run_len, history = 0, 0, [0] * 7
+        for value in line:
+            if value == run_color:
+                run_len += 1
+                if run_len == 5:
+                    score += 3                     # 规则 1
+                elif run_len > 5:
+                    score += 1
+            else:
+                _finder_history_add(run_len, history, size)
+                if not run_color:
+                    score += _finder_history_count(history) * 40   # 规则 3
+                run_color, run_len = value, 1
+        if run_color:
+            _finder_history_add(run_len, history, size)
+            run_len = 0
+        _finder_history_add(run_len + size, history, size)
+        score += _finder_history_count(history) * 40
+
+    for r in range(size - 1):                       # 规则 2
+        for c in range(size - 1):
+            block = modules[r][c] + modules[r][c + 1] + modules[r + 1][c] + modules[r + 1][c + 1]
+            if block in (0, 4):
+                score += 3
+
+    dark = sum(sum(row) for row in modules)         # 规则 4
+    score += 10 * (int(abs(dark * 100.0 / (size * size) - 50)) // 5)
+    return score
+
+
+def qr_matrix(text, level="M", force_mask=None, force_version=None):
+    """把文本编成二维码矩阵，返回 size×size 的 0/1 列表（1 = 暗）。"""
+    payload = text.encode("utf-8")
+    version = force_version or _pick_version(len(payload), level)
+    size = version * 4 + 17
+    codewords = _encode_codewords(payload, version, level)
+
+    base_modules = [[0] * size for _ in range(size)]
+    reserved = [[False] * size for _ in range(size)]
+    _draw_function_patterns(base_modules, reserved, version, size)
+    _place_data(base_modules, reserved, codewords, size)
+
+    best, best_score = None, None
+    masks = [force_mask] if force_mask is not None else range(8)
+    for mask in masks:
+        candidate = [row[:] for row in base_modules]
+        for r in range(size):
+            for c in range(size):
+                if not reserved[r][c] and _mask_bit(mask, r, c):
+                    candidate[r][c] ^= 1
+        _draw_format(candidate, level, mask, size)
+        _draw_version(candidate, version, size)
+        score = _penalty(candidate, size)
+        if best_score is None or score < best_score:
+            best, best_score = candidate, score
+    return best
+
+
+def qr_png_bytes(text, level="L", scale=10, quiet=4):
+    """把二维码编成 PNG 字节流（8 位灰度，纯 zlib，无第三方依赖）。"""
+    matrix = qr_matrix(text, level)
+    size = len(matrix)
+    side = (size + quiet * 2) * scale
+
+    rows = []
+    for y in range(side):
+        my = y // scale - quiet
+        row = bytearray([0])                       # 每行的 filter type
+        inside_y = 0 <= my < size
+        for x in range(side):
+            mx = x // scale - quiet
+            dark = inside_y and 0 <= mx < size and matrix[my][mx]
+            row.append(0 if dark else 255)
+        rows.append(bytes(row))
+
+    def chunk(tag, payload):
+        return (struct.pack(">I", len(payload)) + tag + payload
+                + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+            + chunk(b"IEND", b""))
+
+
+# ---------------------------------------------------------------------------
+# 缓存目录：凭据、登录状态、二维码图片都放这儿。
+# 凭据全程只有这一个来源：login 写它，logout 删它，其余命令读它。
+# ---------------------------------------------------------------------------
+
+
+def prog():
+    return os.path.basename(sys.argv[0]) or "bilibili_live_stream"
+
+
+def cache_dir():
+    home = (os.environ.get("BILIBILI_LIVE_STREAM_HOME")
+            or os.environ.get("BILIBILI_STREAM_KEY_HOME"))
+    if home:
+        return os.path.expanduser(home)
+    system = platform.system()
+    if system == "Windows":
+        root = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
+    elif system == "Darwin":
+        root = os.environ.get("MIYU_SCRIPT_CACHE_DIR") or os.path.expanduser("~/Library/Caches")
+    else:
+        root = (os.environ.get("MIYU_SCRIPT_CACHE_DIR")
+                or os.environ.get("XDG_CACHE_HOME")
+                or os.path.expanduser("~/.cache"))
+    path = os.path.join(root, APP_NAME)
+    legacy = os.path.join(root, LEGACY_APP_NAME)
+    # 脚本改名前登录过的人，把老缓存目录整个搬过来，省得白登一次
+    if not os.path.exists(path) and os.path.isdir(legacy):
+        try:
+            os.rename(legacy, path)
+        except OSError:
+            return legacy
+    return path
+
+
+def _cache_file(name):
+    return os.path.join(cache_dir(), name)
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_json(path, payload, private=False):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    if private:
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    return path
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return False
+
+
+def load_cookies():
+    data = _read_json(_cache_file("credentials.json")) or {}
+    return dict(data.get("cookies") or {})
+
+
+def save_cookies(cookies):
+    return _write_json(_cache_file("credentials.json"),
+                       {"cookies": cookies,
+                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+                       private=True)
+
+
+def write_qr_image(url, filename):
+    """二维码只写文件，绝不往终端画——由调用方决定怎么呈现给用户。"""
+    path = _cache_file(filename)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(qr_png_bytes(url))
+    return path
+
+
+def parse_cookie_string(text):
+    """与 src/view/cookie-login.tsx 的 parseCookie 一致。"""
+    cookies = {}
+    for pair in text.split(";"):
+        pair = pair.strip()
+        if "=" in pair:
+            name, value = pair.split("=", 1)
+            if name.strip() and value.strip():
+                cookies[name.strip()] = value.strip()
+    return cookies
+
+
+# ---------------------------------------------------------------------------
+# 分区：列表缓存 + 把用户写的中文名/拼音/id 解析成唯一的子分区
+# ---------------------------------------------------------------------------
+
+
+def load_area_list(sess, refresh=False):
+    path = _cache_file("areas.json")
+    if not refresh:
+        cached = _read_json(path) or {}
+        if cached.get("parents") and time.time() - cached.get("fetched_at", 0) < AREA_TTL:
+            return cached["parents"]
+    parents = sess.client.area_list()
+    try:
+        _write_json(path, {"fetched_at": int(time.time()), "parents": parents})
+    except OSError:
+        pass                      # 缓存写不下去不算错，接口已经拿到了
+    return parents
+
+
+def flatten_areas(parents):
+    """父分区数组 → 扁平的子分区列表，只留解析和展示要用的字段。"""
+    areas = []
+    for parent in parents:
+        for area in parent.get("list") or []:
+            areas.append({
+                "id": int(area["id"]),
+                "name": area.get("name") or "",
+                "parent_id": int(parent["id"]),
+                "parent_name": parent.get("name") or "",
+                "pinyin": (area.get("pinyin") or "").lower(),
+                "locked": str(area.get("lock_status") or "0") not in ("0", ""),
+            })
+    return areas
+
+
+def area_label(area):
+    return "%s / %s" % (area["parent_name"], area["name"])
+
+
+def _candidates(areas):
+    return [{"id": a["id"], "name": area_label(a)} for a in areas]
+
+
+def resolve_area(areas, spec):
+    """接受数字 id、子分区名、拼音，或"父分区/子分区"消歧写法。"""
+    spec = str(spec).strip()
+    if not spec:
+        raise ToolError("usage", "分区不能是空的。", hint="用 areas 查有哪些分区。")
+
+    if spec.isdigit():
+        for area in areas:
+            if area["id"] == int(spec):
+                return area
+        raise ToolError("usage", "没有 id 为 %s 的分区。" % spec,
+                        hint="用 areas --search 关键词 查正确的分区 id。")
+
+    parent_hint, needle = None, spec.lower()
+    if "/" in spec:
+        head, tail = spec.split("/", 1)
+        parent_hint, needle = head.strip().lower(), tail.strip().lower()
+    if not needle:
+        raise ToolError("usage", "分区写法看不懂：%s" % spec,
+                        hint='要么给 id，要么给"父分区/子分区"或直接给子分区名。')
+
+    pool = areas
+    if parent_hint:
+        pool = [a for a in pool if parent_hint in a["parent_name"].lower()]
+        if not pool:
+            raise ToolError("usage", "没有叫「%s」的父分区。" % spec.split("/", 1)[0].strip(),
+                            hint="用 areas 看父分区列表。")
+
+    exact = [a for a in pool if needle in (a["name"].lower(), a["pinyin"])]
+    matches = exact or [a for a in pool
+                        if needle in a["name"].lower() or needle in a["pinyin"]]
+    if not matches:
+        raise ToolError(
+            "usage",
+            ("父分区「%s」下面没有叫「%s」的分区。" % (pool[0]["parent_name"], needle)
+             if parent_hint else "找不到叫「%s」的分区。" % spec),
+            hint=("用 areas --parent %s 看这个父分区下有哪些。" % pool[0]["parent_name"]
+                  if parent_hint else "用 areas --search 关键词 查一下正确的名字。"))
+    if len(matches) > 1:
+        raise ToolError(
+            "usage", "「%s」匹配到 %d 个分区，说具体点或者直接给 id。" % (spec, len(matches)),
+            hint="候选：" + "、".join("%s(%d)" % (area_label(a), a["id"])
+                                     for a in matches[:8]),
+            detail={"candidates": _candidates(matches[:AREA_LIST_LIMIT])})
+    return matches[0]
+
+
+def check_area_usable(area):
+    if area["locked"]:
+        raise ToolError("usage", "分区「%s」当前被 B 站锁定，不能用。" % area_label(area),
+                        hint="换一个分区，用 areas --search 关键词 找。")
+    return area
+
+
+class Session:
+    def __init__(self, verbose=False):
+        self.client = BiliClient(load_cookies(), verbose)
+        self._nav = None
+        self._room_id = None
+
+    def require_login(self):
+        if not self.client.logged_in():
+            raise ToolError("auth", "尚未登录。",
+                            hint="先运行 login（返回二维码图片路径），用户扫完后再运行一次 login。")
+
+    def nav(self):
+        if self._nav is None:
+            self.require_login()
+            self._nav = self.client.nav()
+        return self._nav
+
+    def room_id(self):
+        if self._room_id is None:
+            self._room_id = self.client.room_id_by_uid(int(self.nav()["mid"]))
+        if not self._room_id:
+            raise ToolError("usage", "这个账号还没有直播间。",
+                            hint="先去 https://link.bilibili.com 开通直播间。")
+        return self._room_id
+
+    def flush(self):
+        if self.client.cookies_changed and self.client.logged_in():
+            save_cookies(self.client.cookies)
+
+
+# ---------------------------------------------------------------------------
+# login：两步式。第一次生成二维码图片就返回，第二次才轮询确认。
+# 这样调用方有机会在中间把图片交给用户。
+# ---------------------------------------------------------------------------
+
+
+def _new_login_qr(sess):
+    qrcode = sess.client.qrcode_generate()
+    url, key = qrcode["url"], qrcode["qrcode_key"]
+    image = write_qr_image(url, "login-qr.png")
+    _write_json(_cache_file("login-state.json"),
+                {"qrcode_key": key, "url": url, "created_at": int(time.time())})
+    return {
+        "status": "pending",
+        "qr_image": image,
+        "login_url": url,
+        "expires_in": QR_TTL,
+        "next_step": "把 qr_image 交给用户用哔哩哔哩 App 扫码确认，确认扫完后再调一次 login。",
+    }
+
+
+def _pending(state):
+    """把已有的登录状态包成 pending 结果。"""
+    return {
+        "status": "pending",
+        "qr_image": _cache_file("login-qr.png"),
+        "login_url": state.get("url"),
+        "expires_in": max(0, QR_TTL - (int(time.time()) - int(state.get("created_at", 0)))),
+        "next_step": "把 qr_image 交给用户用哔哩哔哩 App 扫码确认，扫完后再调一次 login。",
+    }
+
+
+def _expired(state):
+    return int(time.time()) - int(state.get("created_at", 0)) >= QR_TTL
+
+
+def _poll_login(sess, state, timeout):
+    """返回结果字典；二维码已失效则返回 None，交给上层重新生成。"""
+    key = state.get("qrcode_key")
+    created = int(state.get("created_at", 0))
+    remaining = QR_TTL - (int(time.time()) - created)
+    if not key or remaining <= 0:
+        return None
+
+    deadline = time.time() + min(timeout, remaining)
+    status = {}
+    while True:
+        status = sess.client.qrcode_poll(key)
+        code = status.get("code")
+        if code == 0:
+            # 兜底：poll 返回的跳转地址里也带着 Cookie
+            query = urlparse.parse_qs(urlparse.urlparse(status.get("url") or "").query)
+            for name in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
+                if query.get(name):
+                    sess.client.cookies.setdefault(name, query[name][0])
+            if not sess.client.logged_in():
+                raise ToolError("auth", "扫码成功但没拿到 Cookie，请重新调用 login。")
+            # 扫码已确认，先落盘，别因为 nav 抖一下让用户重扫
+            saved = save_cookies(sess.client.cookies)
+            _remove(_cache_file("login-state.json"))
+            _remove(_cache_file("login-qr.png"))
+            result = {"status": "success", "credentials": saved}
+            try:
+                nav = sess.client.nav()
+                result["uid"], result["username"] = nav.get("mid"), nav.get("uname")
+            except ToolError as exc:
+                result["warning"] = "凭据已保存，但获取用户信息失败：%s" % exc.message
+            return result
+        if code == 86038:                       # 二维码已失效
+            _remove(_cache_file("login-state.json"))
+            return None
+        if time.time() >= deadline:
+            break
+        time.sleep(2)
+
+    return {
+        "status": "waiting",
+        "qr_image": _cache_file("login-qr.png"),
+        "detail": status.get("message") or "等待扫码",
+        "expires_in": max(0, QR_TTL - (int(time.time()) - created)),
+        "next_step": "用户还没扫完。等用户确认扫完后再调一次 login，二维码没变。",
+    }
+
+
+def op_login(sess, cookie_text=None, wait=0):
+    client = sess.client
+
+    if client.logged_in():
+        try:
+            nav = client.nav()
+            return {"status": "already_logged_in", "uid": nav.get("mid"),
+                    "username": nav.get("uname"),
+                    "next_step": "已登录，换账号先调 logout。"}
+        except ToolError:
+            client.cookies = {}                 # 凭据失效，走重新登录
+
+    if cookie_text:
+        cookies = parse_cookie_string(cookie_text)
+        missing = [name for name in REQUIRED_COOKIES if not cookies.get(name)]
+        if missing:
+            raise ToolError("usage", "Cookie 里缺少 %s。" % "、".join(missing),
+                            hint="需要浏览器里 api.bilibili.com 请求的完整 Cookie。")
+        client.cookies = cookies
+        nav = client.nav()                      # 先验证，通过了才落盘
+        return {"status": "success", "uid": nav.get("mid"), "username": nav.get("uname"),
+                "credentials": save_cookies(client.cookies)}
+
+    state = _read_json(_cache_file("login-state.json"))
+    fresh = not state or _expired(state)
+    if fresh:
+        pending = _new_login_qr(sess)
+        state = _read_json(_cache_file("login-state.json"))
+    else:
+        pending = _pending(state)
+
+    # 刚生成的码没人可能扫过，别去轮询——直接把图片路径交出去，
+    # 否则第一次调用会落进 waiting 分支，调用方根本拿不到图片在哪。
+    if fresh and wait <= 0:
+        return pending
+
+    # wait=0（默认）时 _poll_login 只查一次就返回，绝不阻塞：
+    # 这是给 AI 用的工具，卡住的命令等于卡住整个工具调用。
+    if wait > 0:
+        # 只有人盯着实时终端时这行才有意义，AI 要等命令结束才看得到输出
+        print("二维码图片：%s　用哔哩哔哩 App 扫码" % pending["qr_image"],
+              file=sys.stderr, flush=True)
+
+    result = _poll_login(sess, state, wait)
+    if result is not None:
+        return result
+    fresh = _new_login_qr(sess)                 # 等待期间原码失效了，换一张
+    fresh["detail"] = "上一张二维码已失效，已生成新的。"
+    return fresh
+
+
+def op_logout(sess):
+    path = _cache_file("credentials.json")
+    existed = os.path.exists(path)
+    _remove(path)
+    _remove(_cache_file("login-state.json"))
+    _remove(_cache_file("login-qr.png"))
+    return {"logged_out": existed,
+            "message": "已登出，本地凭据已删除。" if existed else "本来就没有登录。"}
+
+
+def op_status(sess):
+    sess.require_login()
+    room_id = sess.room_id()
+    info = sess.client.room_info(room_id)
+    live_status = int(info.get("live_status", 0))
+    return {
+        "username": sess.nav().get("uname"),
+        "uid": int(sess.nav()["mid"]),
+        "room_id": room_id,
+        "room_url": "https://live.bilibili.com/%s" % room_id,
+        "title": info.get("title"),
+        "area": "%s / %s" % (info.get("parent_area_name"), info.get("area_name")),
+        "area_id": info.get("area_id"),
+        "live_status": live_status,
+        "live_status_text": LIVE_STATUS_TEXT.get(live_status, "未知"),
+        "is_live": live_status == 1,
+    }
+
+
+def op_areas(sess, search=None, parent=None, refresh=False):
+    """只读，不需要登录：分区列表是公开接口。"""
+    parents = load_area_list(sess, refresh)
+    if not (search or parent):
+        return {
+            "scope": "parents",
+            "count": len(parents),
+            "parents": [{"id": int(p["id"]), "name": p.get("name") or "",
+                         "area_count": len(p.get("list") or [])} for p in parents],
+            "next_step": "再用 areas --parent 父分区 或 areas --search 关键词 查具体子分区。",
+        }
+
+    pool = flatten_areas(parents)
+    if parent:
+        key = str(parent).strip().lower()
+        if key.isdigit():
+            pool = [a for a in pool if a["parent_id"] == int(key)]
+        else:
+            pool = [a for a in pool if key in a["parent_name"].lower()]
+        if not pool:
+            raise ToolError("usage", "没有叫「%s」的父分区。" % parent,
+                            hint="不带参数跑一次 areas 看父分区列表。")
+    if search:
+        key = str(search).strip().lower()
+        pool = [a for a in pool if key in a["name"].lower() or key in a["pinyin"]
+                or key in a["parent_name"].lower()]
+
+    shown = pool[:AREA_LIST_LIMIT]
+    result = {
+        "scope": "areas",
+        "search": search,
+        "parent": parent,
+        "count": len(pool),
+        "areas": [{"id": a["id"], "name": a["name"], "parent_name": a["parent_name"],
+                   "full_name": area_label(a), "pinyin": a["pinyin"],
+                   "locked": a["locked"]} for a in shown],
+    }
+    if len(pool) > len(shown):
+        result["truncated"] = len(pool) - len(shown)
+    if not pool:
+        result["next_step"] = "没匹配上，换个关键词，或者不带参数跑 areas 看父分区。"
+    return result
+
+
+def op_update(sess, title=None, area=None):
+    """改直播间标题 / 分区。在播时改也立刻生效。"""
+    if not title and not area:
+        raise ToolError("usage", "没说要改什么。",
+                        hint="至少给一个 --title 或 --area。")
+    sess.require_login()
+    room_id = sess.room_id()
+    info = sess.client.room_info(room_id)
+    previous = {
+        "title": info.get("title"),
+        "area": "%s / %s" % (info.get("parent_area_name"), info.get("area_name")),
+        "area_id": info.get("area_id"),
+    }
+
+    # 先把分区名解析掉再动直播间：名字写错就不该留下改了一半的状态
+    new_area = (check_area_usable(resolve_area(flatten_areas(load_area_list(sess)), area))
+                if area else None)
+    sess.client.update_room(room_id, title=title,
+                            area_id=new_area["id"] if new_area else None)
+    changed = ([] if not title else ["title"]) + ([] if not new_area else ["area"])
+
+    live_status = int(info.get("live_status", 0))
+    result = {
+        "room_id": room_id,
+        "room_url": "https://live.bilibili.com/%s" % room_id,
+        "title": title or previous["title"],
+        "area": area_label(new_area) if new_area else previous["area"],
+        "area_id": new_area["id"] if new_area else previous["area_id"],
+        "changed": changed,
+        "previous": previous,
+        "is_live": live_status == 1,
+    }
+    if live_status == 1:
+        result["warning"] = "直播间正在直播中，改动已经对观众生效。"
+    return result
+
+
+def _collect_streams(data):
+    """src/view/live-stream-settings.tsx handleStartStream 的结果整理逻辑。"""
+    streams = []
+    rtmp_count, srt_count = 1, 0
+    rtmp = data.get("rtmp") or {}
+    if rtmp.get("addr") and rtmp.get("code"):
+        streams.append({"type": "rtmp-1", "protocol": "rtmp",
+                        "address": rtmp["addr"], "key": rtmp["code"]})
+    for item in data.get("protocols") or []:
+        if not (item.get("addr") and item.get("code")):
+            continue
+        if item.get("protocol") == "rtmp":
+            rtmp_count += 1
+            name = "rtmp-%d" % rtmp_count
+        elif item.get("protocol") == "srt":
+            srt_count += 1
+            name = "srt-%d" % srt_count
+        else:
+            continue
+        streams.append({"type": name, "protocol": item["protocol"],
+                        "address": item["addr"], "key": item["code"]})
+    streams.sort(key=lambda s: s["type"])
+    for stream in streams:
+        address, key = stream["address"], stream["key"]
+        stream["full_url"] = (address + key
+                              if key.startswith("?") or address.endswith("/")
+                              else address + "/" + key)
+    return streams
+
+
+def op_start(sess, title=None, area=None):
+    sess.require_login()
+    room_id = sess.room_id()
+    info = sess.client.room_info(room_id)
+    was_live = int(info.get("live_status", 0)) == 1
+
+    # 先把分区解析出来再动直播间：名字打错就不该留下改了一半的状态
+    chosen = (check_area_usable(resolve_area(flatten_areas(load_area_list(sess)), area))
+              if area else None)
+
+    if title or chosen:
+        sess.client.update_room(room_id, title=title,
+                                area_id=chosen["id"] if chosen else None)
+    if title:
+        info["title"] = title
+    if chosen:
+        info["area_id"] = chosen["id"]
+        info["area_name"] = chosen["name"]
+        info["parent_area_name"] = chosen["parent_name"]
+
+    area_v2 = info.get("area_id")
+    if not area_v2:
+        raise ToolError("usage", "直播间没有设置分区，无法开播。",
+                        hint="加 --area 分区名开播，或用 update --area 先设一个。")
+
+    version = sess.client.live_version()
+    response = sess.client.start_live(room_id, area_v2,
+                                      version["curr_version"], version["build"])
+    code = response.get("code")
+    payload = response.get("data") or {}
+
+    if code == 60024:
+        url = payload.get("qr")
+        raise ToolError("verify_required", "本次开播需要扫码验证。",
+                        hint="把 detail.qr_image 交给用户扫码验证，完成后重新调 start。",
+                        code=60024,
+                        detail={"qr_url": url,
+                                "qr_image": write_qr_image(url, "verify-qr.png") if url else None})
+    if code == 60043:
+        url = ("https://www.bilibili.com/blackboard/live/face-auth-middle.html"
+               "?source_event=400&mid=%s" % sess.nav()["mid"])
+        raise ToolError("face_auth_required", "本次开播需要人脸认证。",
+                        hint="把 detail.qr_image 交给用户扫码认证，完成后重新调 start。",
+                        code=60043,
+                        detail={"qr_url": url,
+                                "qr_image": write_qr_image(url, "verify-qr.png")})
+    if code != 0:
+        raise ApiError(code, response.get("message") or "开播失败")
+
+    streams = _collect_streams(payload)
+    primary = next((s for s in streams if s["protocol"] == "rtmp"), None)
+    result = {
+        "room_id": room_id,
+        "room_url": "https://live.bilibili.com/%s" % room_id,
+        "title": info.get("title"),
+        "area": "%s / %s" % (info.get("parent_area_name"), info.get("area_name")),
+        "area_id": area_v2,
+        "was_live": was_live,
+        "streams": streams,
+    }
+    if primary:
+        result["server"] = primary["address"]
+        result["stream_key"] = primary["key"]
+    result["warning"] = ("直播间此前已在直播中，本次只是重新取了一份推流凭据。"
+                         if was_live else
+                         "直播间现在已经对外可见，粉丝会收到开播推送。")
+    result["next_step"] = "server 填 OBS「服务器」、stream_key 填「串流密钥」，结束调 stop。"
+    return result
+
+
+def op_stop(sess):
+    sess.require_login()
+    room_id = sess.room_id()
+    data = sess.client.stop_live(room_id)
+    return {"room_id": room_id, "stopped": True, "status": data.get("status")}
+
+
+# ---------------------------------------------------------------------------
+# 输出：默认精简纯文本摘要；--json 给完整结构化数据
+# ---------------------------------------------------------------------------
+
+
+def render_md(command, data):
+    """精简摘要：只给最要紧的信息，完整数据走 --json。"""
+    lines = []
+    if command == "status":
+        lines.append("%s · 直播间 %s · %s"
+                     % (data["live_status_text"], data["room_id"], data["username"]))
+        lines.append("标题：%s" % data["title"])
+        lines.append("分区：%s（id %s）" % (data["area"], data.get("area_id", "-")))
+    elif command == "start":
+        lines.append("%s · 直播间 %s · %s"
+                     % ("此前已在直播中" if data["was_live"] else "已开播，直播间对外可见",
+                        data["room_id"], data["title"]))
+        lines.append("分区：%s" % data["area"])
+        lines.append("")
+        lines.append("服务器 %s" % data.get("server", "-"))
+        lines.append("推流码 %s" % data.get("stream_key", "-"))
+        # 按条数算，不能按 address 比对：B 站的 rtmp-1 / rtmp-2 常常是同一个主机
+        extra = len(data["streams"]) - (1 if data.get("server") else 0)
+        if extra:
+            lines.append("")
+            lines.append("另有 %d 条备用线路，加 --json 可见" % extra)
+    elif command == "update":
+        changed = data["changed"]
+        lines.append("%s · 直播间 %s"
+                     % ("已更新" + "、".join(
+                            {"title": "标题", "area": "分区"}[c] for c in changed),
+                        data["room_id"]))
+        lines.append("标题：%s%s" % (data["title"],
+                                    "（原：%s）" % data["previous"]["title"]
+                                    if "title" in changed else ""))
+        lines.append("分区：%s（id %s%s）"
+                     % (data["area"], data["area_id"],
+                        "，原 %s" % data["previous"]["area"] if "area" in changed else ""))
+        if data.get("warning"):
+            lines.append(data["warning"])
+    elif command == "areas":
+        if data["scope"] == "parents":
+            lines.append("父分区 %d 个（id  名称  子分区数）：" % data["count"])
+            lines.extend("%-6s %s（%d）" % (p["id"], p["name"], p["area_count"])
+                         for p in data["parents"])
+        else:
+            scope = "、".join(filter(None, [
+                "父分区 %s" % data["parent"] if data["parent"] else None,
+                "关键词 %s" % data["search"] if data["search"] else None]))
+            lines.append("匹配 %d 个子分区（%s）：" % (data["count"], scope))
+            lines.extend("%-6s %s%s" % (a["id"], a["full_name"],
+                                        "  [已锁定]" if a["locked"] else "")
+                         for a in data["areas"])
+        if data.get("truncated"):
+            lines.append("……还有 %d 个没列出来，缩小关键词或加 --json。" % data["truncated"])
+        if data.get("next_step"):
+            lines.append(data["next_step"])
+    elif command == "stop":
+        lines.append("已下播 · 直播间 %s" % data["room_id"])
+    elif command == "login":
+        status = data["status"]
+        if status == "success":
+            lines.append("登录成功：%s (%s)" % (data.get("username", "?"), data.get("uid", "?")))
+        elif status == "already_logged_in":
+            lines.append("已登录：%s (%s)" % (data.get("username"), data.get("uid")))
+        elif status == "pending":
+            lines.append("待扫码，二维码图片：%s" % data["qr_image"])
+            lines.append("把图片给用户用哔哩哔哩 App 扫，确认扫完后再运行一次 login（%d 秒内有效）。"
+                         % data["expires_in"])
+        else:
+            lines.append("%s，还剩 %d 秒。用户扫完后再运行一次 login，二维码没变。"
+                         % (data.get("detail", "等待扫码"), data["expires_in"]))
+        if data.get("warning"):
+            lines.append(data["warning"])
+    elif command == "logout":
+        lines.append(data["message"])
+    return "\n".join(lines)
+
+
+def emit(command, data, as_json):
+    if as_json:
+        print(json.dumps({"ok": True, "command": command, "data": data},
+                         ensure_ascii=False, indent=2))
+    else:
+        print(render_md(command, data))
+
+
+def emit_error(command, error, as_json):
+    if as_json:
+        print(json.dumps({"ok": False, "command": command, "error": error.to_dict()},
+                         ensure_ascii=False, indent=2))
+        return
+    lines = ["错误 [%s] %s" % (error.kind, error.message)]
+    image = (error.detail or {}).get("qr_image")
+    if image:
+        lines.append("二维码图片：%s" % image)
+    if error.hint:
+        lines.append(error.hint)
+    print("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main(argv=None):
+    # 放进 parent parser 并用 SUPPRESS 作默认值，这样 `--json login` 和
+    # `login --json` 都能用，且子命令的默认值不会把前置的选项悄悄覆盖掉。
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", dest="as_json", action="store_true",
+                        default=argparse.SUPPRESS,
+                        help="输出完整 JSON（默认输出精简纯文本摘要）")
+    common.add_argument("-v", "--verbose", action="store_true",
+                        default=argparse.SUPPRESS, help="把请求日志打到 stderr")
+
+    parser = argparse.ArgumentParser(
+        prog=prog(), parents=[common],
+        description="哔哩哔哩直播控制 —— 登录 / 状态 / 分区 / 改标题分区 / 开播 / 下播",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+  %(prog)s login                      登录，调两次：先出二维码图片，用户扫完后再调一次
+  %(prog)s status                     直播间状态（只读）
+  %(prog)s areas                      列父分区（只读，不用登录）
+  %(prog)s areas --search 虚拟         在子分区里搜关键词
+  %(prog)s areas --parent 网游         列某个父分区下的子分区
+  %(prog)s update --title "新标题"     改直播标题
+  %(prog)s update --area 虚拟日常      改分区（名字、拼音或 id 都行）
+  %(prog)s start --title X --area Y   开播，顺手改标题和分区（直播间会对外可见）
+  %(prog)s stop                       下播
+  %(prog)s logout                     登出
+
+默认输出精简纯文本摘要；要完整结构化数据加 --json。
+""")
+    subparsers = parser.add_subparsers(dest="command")
+
+    login = subparsers.add_parser("login", parents=[common], help="登录（扫码，两步）")
+    login.add_argument("--cookie", metavar="COOKIE",
+                       help='改用 Cookie 直接登录："SESSDATA=..; bili_jct=.."')
+    login.add_argument("--wait", type=int, default=0,
+                       help="阻塞等待用户扫码的秒数（默认 0，即不等待、立刻返回）")
+    subparsers.add_parser("logout", parents=[common], help="登出，删除本地凭据")
+    subparsers.add_parser("status", parents=[common], help="直播间状态（只读）")
+
+    areas = subparsers.add_parser("areas", parents=[common],
+                                  help="查分区（只读，不需要登录）")
+    areas.add_argument("--search", metavar="关键词",
+                       help="在子分区的名字、拼音和父分区名里搜")
+    areas.add_argument("--parent", metavar="父分区",
+                       help="只列这个父分区（名字或 id）下的子分区")
+    areas.add_argument("--refresh", action="store_true",
+                       help="忽略本地缓存，重新拉一次分区列表")
+
+    update = subparsers.add_parser("update", parents=[common],
+                                   help="改直播标题 / 分区（在播时立刻对观众生效）")
+    update.add_argument("--title", help="新的直播标题")
+    update.add_argument("--area", metavar="分区",
+                        help='新的分区：id、名字、拼音或"父分区/子分区"')
+
+    start = subparsers.add_parser("start", parents=[common],
+                                  help="开播并返回推流地址与推流码（★ 直播间立刻对外可见）")
+    start.add_argument("--title", help="开播前把直播标题改成这个")
+    start.add_argument("--area", metavar="分区", help="开播前把分区改成这个")
+    subparsers.add_parser("stop", parents=[common], help="下播")
+    update.epilog = "标题和分区一起给是一次请求；分开连着调会被 B 站限流。"
+
+    args = parser.parse_args(argv)
+    for name, default in (("as_json", False), ("verbose", False)):
+        if not hasattr(args, name):
+            setattr(args, name, default)
+    if not args.command:
+        parser.print_help()
+        return 2
+
+    sess = Session(args.verbose)
+    try:
+        if args.command == "login":
+            data = op_login(sess, args.cookie, args.wait)
+        elif args.command == "logout":
+            data = op_logout(sess)
+        elif args.command == "status":
+            data = op_status(sess)
+        elif args.command == "areas":
+            data = op_areas(sess, args.search, args.parent, args.refresh)
+        elif args.command == "update":
+            data = op_update(sess, args.title, args.area)
+        elif args.command == "start":
+            data = op_start(sess, args.title, args.area)
+        else:
+            data = op_stop(sess)
+    except ToolError as exc:
+        emit_error(args.command, exc, args.as_json)
+        return 1
+    except KeyboardInterrupt:
+        print("已中断", file=sys.stderr)
+        return 130
+    finally:
+        sess.flush()
+
+    emit(args.command, data, args.as_json)
+    return 0
+
+
+def _argv_from_stdin():
+    """Miyu 的脚本工具把参数以 JSON 从 stdin 传入、argv 为空，这里转成 CLI 参数。"""
+    if sys.argv[1:] or sys.stdin.isatty():
+        return None
+    try:
+        raw = sys.stdin.read().strip()
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    argv = []
+    cmd = payload.pop("command", None)
+    if cmd:
+        argv.append(str(cmd))
+    for key, value in payload.items():
+        if value is None or value is False or value == "":
+            continue
+        flag = "--" + str(key).replace("_", "-")
+        if value is True:
+            argv.append(flag)
+        else:
+            argv.extend([flag, str(value)])
+    return argv
+
+
+if __name__ == "__main__":
+    sys.exit(main(_argv_from_stdin()))

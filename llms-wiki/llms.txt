@@ -26,6 +26,9 @@ demand. Source code is always the final truth; this wiki mirrors it.
 `configs/` currently holds: `alacritty`, `cava`, `fastfetch`, `kitty`,
 `niri` (with `cfg/` and `animations/`), `noctalia`, `waybar`.
 Wallpapers live in `assets/wallpapers/` (deployed to `~/图片/wallpaper`, i.e. `<Pictures>/wallpaper`).
+Bundled tools live in `ZEKlive/` and install into `~/.local` via the separate,
+opt-in `ZEKlive` install option: `ZEK-blv`, `ZEK-danmaku`, and the
+`bilibili_live_stream` helper (`~/.local/share/ZEK-blv/`).
 Per-app manifests only declare what is exceptional — see
 [manifest-schema](manifest-schema.md). `niri` and `waybar` use `preserve`/`chmod`;
 the rest use defaults.

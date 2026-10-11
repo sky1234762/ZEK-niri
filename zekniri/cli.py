@@ -28,9 +28,11 @@ from zekniri.deploy import (
     deploy_assets,
     deploy_runtime_conf,
     deploy_selected_configs,
+    deploy_zeklive,
     discover_config_items,
     render_completion_screen,
     test_deploy,
+    zeklive_present,
 )
 from zekniri.deps import (
     get_missing_deps,
@@ -65,13 +67,16 @@ from zekniri.tui import (
 # --- Install workflow --------------------------------------------------------
 
 def run_master_component_menu(mode: str = "full") -> Optional[dict]:
-    """Checklist for choosing configs, assets, and backup behaviour."""
+    """Checklist for choosing configs, extras, and backup behaviour."""
     entries: List[CheckboxEntry] = []
     for item in discover_config_items():
         entries.append(CheckboxEntry(key=f"config_{item}", label=item, checked=True))
 
     if mode == "full" and assets_present():
         entries.append(CheckboxEntry(key="assets", label=msg("master_item_assets"), checked=True))
+
+    if zeklive_present():
+        entries.append(CheckboxEntry(key="tool_zeklive", label=msg("master_item_zeklive"), checked=True))
 
     entries.append(CheckboxEntry(key="sep_behavior", label=msg("master_item_behavior"), is_separator=True))
     entries.append(CheckboxEntry(key="behavior_backup", label=msg("master_item_backup"), checked=True))
@@ -83,15 +88,20 @@ def run_master_component_menu(mode: str = "full") -> Optional[dict]:
     return {
         "configs": [k.removeprefix("config_") for k in chosen if k.startswith("config_")],
         "assets": "assets" in chosen,
+        "zeklive": "tool_zeklive" in chosen,
         "backup": "behavior_backup" in chosen,
     }
 
 
-def _phase_preflight_check(mode: str, chosen_configs: List[str], do_assets: bool, do_backup: bool) -> None:
+def _phase_preflight_check(
+    mode: str, chosen_configs: List[str], do_assets: bool, do_zeklive: bool, do_backup: bool
+) -> None:
     print(msg("preflight_summary"))
     print(msg("preflight_configs", len(chosen_configs)))
     if do_assets:
         print(msg("preflight_assets"))
+    if do_zeklive:
+        print(msg("preflight_zeklive"))
     if mode == "full":
         print(msg("preflight_deps"))
     if do_backup:
@@ -109,25 +119,27 @@ def install_configs_workflow(mode: str = "full") -> bool:
             return True
         chosen_configs = chosen["configs"]
         do_assets = chosen["assets"]
+        do_zeklive = chosen["zeklive"]
         do_backup = chosen["backup"]
-        if not chosen_configs and not do_assets:
+        if not chosen_configs and not do_assets and not do_zeklive:
             print(msg("install_cancelled"))
             return True
     else:
         chosen_configs = discover_config_items()
         do_assets = assets_present()
+        do_zeklive = zeklive_present()
         do_backup = False
 
-    _phase_preflight_check(mode, chosen_configs, do_assets, do_backup)
+    _phase_preflight_check(mode, chosen_configs, do_assets, do_zeklive, do_backup)
 
     if mode == "full":
         missing = get_missing_deps()
         if missing:
             install_selected_deps(missing)
 
+    preserved: List[str] = []
     if chosen_configs:
         print(msg("install_step_configs"))
-        preserved: List[str] = []
         failed = deploy_selected_configs(do_backup=do_backup, items_to_deploy=chosen_configs, preserved_log=preserved)
         if failed:
             render_completion_screen(mode=mode, chosen_items=chosen_configs, preserved_lines=preserved, failed_items=failed)
@@ -138,11 +150,17 @@ def install_configs_workflow(mode: str = "full") -> bool:
         print(msg("install_step_assets"))
         asset_result = deploy_assets()
 
+    tool_result = None
+    if do_zeklive:
+        print(msg("install_step_zeklive"))
+        tool_result = deploy_zeklive()
+
     render_completion_screen(
         mode=mode,
         chosen_items=chosen_configs,
-        preserved_lines=preserved if chosen_configs else [],
+        preserved_lines=preserved,
         asset_result=asset_result,
+        tool_result=tool_result,
     )
     return True
 

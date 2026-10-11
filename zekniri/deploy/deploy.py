@@ -17,6 +17,7 @@ from zekniri.i18n import msg
 from zekniri.tui import read_key, show_logo, raw_input_mode, _drain_pending, enter_alt_screen
 from zekniri.deploy.atomic import atomic_replace_item
 from zekniri.deploy.assets import AssetDeployResult, assets_present, deploy_assets
+from zekniri.deploy.tools import ToolDeployResult
 from zekniri.deploy.manifest import discover_deployable_apps, load_manifest
 from zekniri.deploy.templates import _phase_render_templates
 
@@ -169,6 +170,7 @@ def render_completion_screen(
     chosen_items: Optional[List[str]] = None,
     preserved_lines: Optional[List[str]] = None,
     asset_result: Optional[AssetDeployResult] = None,
+    tool_result: Optional[ToolDeployResult] = None,
     failed_items: Optional[List[str]] = None,
 ) -> None:
     """Render the minimal completion screen."""
@@ -199,6 +201,9 @@ def render_completion_screen(
             sys.stdout.write(f"    {Colors.BOLD_GREEN}[✓]{Colors.RESET} {msg('summary_item_assets_ok', asset_result.copied)}\n")
         elif assets_present():
             sys.stdout.write(f"    {Colors.BOLD_GREEN}[✓]{Colors.RESET} {msg('summary_item_assets_existing')}\n")
+
+        if tool_result is not None and tool_result.copied:
+            sys.stdout.write(f"    {Colors.BOLD_GREEN}[✓]{Colors.RESET} {msg('summary_item_zeklive_ok', tool_result.copied)}\n")
 
         if preserved_lines:
             sys.stdout.write(f"\n  {Colors.BOLD_WHITE}{msg('summary_section_preserved')}{Colors.RESET}\n")

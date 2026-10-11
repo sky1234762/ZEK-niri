@@ -21,6 +21,11 @@ from zekniri.deploy.assets import (
     assets_present,
     deploy_assets,
 )
+from zekniri.deploy.tools import (
+    ToolDeployResult,
+    deploy_zeklive,
+    zeklive_present,
+)
 from zekniri.deploy.deploy import (
     discover_config_items,
     _phase_atomic_deployment,
@@ -40,6 +45,9 @@ __all__ = [
     "deploy_assets",
     "assets_present",
     "AssetDeployResult",
+    "deploy_zeklive",
+    "zeklive_present",
+    "ToolDeployResult",
     "load_manifest",
     "load_manifest_for",
     "load_optional_apps",
