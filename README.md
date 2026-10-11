@@ -95,6 +95,5 @@ ZEK-niri test                      沙箱部署（开发者）
 - [SHORiN-KiWATA/shorin-arch-setup](https://github.com/SHORiN-KiWATA/shorin-arch-setup)  waybar配置来源
 - [ech678/Nyxniri](https://github.com/ech678/Nyxuri) 安装程序的灵感与借鉴来源
 - [KaguyaMao/Tsukuyomi](https://github.com/KaguyaMao/Tsukuyomi) 使用的agent
-- bug与问题反馈群号: `1128905094`
 - [bilibili/锂琉鉄谷LiSFeDCo](https://space.bilibili.com/1683768632) 可爱吉祥物
 - bug与问题反馈群号: `1128905094` （你也许可以从这获取到我发布的预设喔）
