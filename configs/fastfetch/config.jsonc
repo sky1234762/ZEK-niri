@@ -67,8 +67,8 @@
             "key": "desktop     ",
         },
         {
-            "key": "Public IP   ",
-            "type": "publicip",
+            "key": "Peripherals ",
+            "type": "mouse",
             "timeout": 500
         },
         {
