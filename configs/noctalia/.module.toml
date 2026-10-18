@@ -1,5 +1,6 @@
 [packages]
 label = "Noctalia"
+repo = ["noctalia"]
 # settings.toml is noctalia runtime state, not ~/.config config: it installs to
 # ~/.local/state/noctalia/ (see manifest `state`). Seeded once, never clobbered.
 state = ["settings.toml"]

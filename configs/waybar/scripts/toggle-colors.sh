@@ -16,6 +16,7 @@
 set -euo pipefail
 
 STYLE="${WAYBAR_STYLE:-$HOME/.config/waybar/style.css}"
+ACTIVE_FILE="${WAYBAR_ACTIVE:-$HOME/.config/waybar/colors-active.css}"
 MANUAL="colors.css"
 NOCTALIA="colors-noctalia.css"
 
@@ -53,12 +54,26 @@ conf_get() {  # conf_get KEY DEFAULT（用户副本优先，安装树兜底）
     printf '%s' "$def"
 }
 
-# 预设配色：preset_palette 现按壁纸逐对（`壁纸 = 配色`）；取第一个配色的文件名作兜底
-_preset_raw="$(conf_get preset_palette "")"
-[[ "$_preset_raw" == *=* ]] && _preset_raw="${_preset_raw##*=}"
-_preset_raw="$(trim "$_preset_raw")"
-[ -n "$_preset_raw" ] || _preset_raw="$HOME/.config/noctalia/palettes/ZEKniri-preset.json"
-PRESET_PALETTE="$(basename "$_preset_raw" .json)"
+# 预设配色兜底：优先裸写的 preset_palette（无 `=`），否则内置 ZEKniri-preset。
+# 逐张壁纸的 `壁纸 = 配色` 配对不算默认，避免把第一张的配色当成全局默认。
+conf_get_preset_default() {
+    local f line k v
+    for f in "${CONF_FILES[@]}"; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+            line="${line%%[[:space:]]#*}"
+            [[ "$line" == *=* ]] || continue
+            k="$(trim "${line%%=*}")"
+            [[ "$k" == "preset_palette" ]] || continue
+            v="$(trim "${line#*=}")"
+            [[ "$v" == *=* ]] && continue
+            printf '%s' "${v/#\~/$HOME}"
+            return
+        done < "$f"
+    done
+    printf '%s' "$HOME/.config/noctalia/palettes/ZEKniri-preset.json"
+}
+PRESET_PALETTE="$(basename "$(conf_get_preset_default)" .json)"
 
 # noctalia模式取色器（source + name）
 NOCTALIA_SCHEME_SOURCE="$(conf_get noctalia_scheme_source "wallpaper")"
@@ -67,9 +82,14 @@ NOCTALIA_SCHEME_NAME="$(conf_get noctalia_scheme_name "soft")"
 # 静默调用 noctalia IPC
 ns() { noctalia msg "$@" >/dev/null 2>&1 || true; }
 
-# 当前生效的配色文件名
+# 当前生效的配色文件名（读 colors-active.css，不限制文件名前缀）
 active() {
-    grep -oE '@import "(colors[^"]*\.css)"' "$STYLE" | head -1 | sed -E 's/@import "(.*)"/\1/'
+    grep -oE '@import "[^"]*\.css"' "$ACTIVE_FILE" | head -1 | sed -E 's/@import "(.*)"/\1/'
+}
+
+# 改写 colors-active.css 的 @import（模式切换只动这个稳定入口，不碰 style.css）
+set_import() {
+    printf '/* 当前生效的配色入口（由 toggle-colors.sh 改写）。 */\n@import "%s";\n' "$1" > "$ACTIVE_FILE"
 }
 
 # 启用 Alacritty / cava 模板并渲染；templates-apply 触发 waybar 模板的 post_hook 重载
@@ -107,7 +127,7 @@ case "${1:-status}" in
   toggle)
     if [[ "$(active)" == "$NOCTALIA" ]]; then
       # -> 预设模式
-      sed -i -E "s|@import \"[^\"]*\.css\";|@import \"$MANUAL\";|" "$STYLE"
+      set_import "$MANUAL"
       apps_disable
       # 让 Noctalia 同步「当前壁纸对应」的配色；未映射时回退到 preset_palette 的默认预设
       if command -v ZEK-niri >/dev/null 2>&1; then
@@ -119,7 +139,7 @@ case "${1:-status}" in
       ns templates-apply
     else
       # -> Noctalia 模式
-      sed -i -E "s|@import \"[^\"]*\.css\";|@import \"$NOCTALIA\";|" "$STYLE"
+      set_import "$NOCTALIA"
       # 让 Noctalia 切到自动取色方案
       ns color-scheme-set "$NOCTALIA_SCHEME_SOURCE" "$NOCTALIA_SCHEME_NAME"
       # apps_enable 内部的 templates-apply 已触发 post_hook 重载（已防抖）

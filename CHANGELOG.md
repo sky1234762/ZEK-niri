@@ -3,11 +3,12 @@
 All notable changes to this project are documented here. One line per user-visible
 change, natural language, only the net change versus the last release.
 
-## [Unreleased]
+## [1.0.5]
 
+- Waybar hardening: `style.css` now imports a stable `colors-active.css` entry that is preserved across deploys (the chosen mode no longer resets on `install`/`update`); unmapped wallpapers fall back to `ZEKniri-preset` / `colors.css`; cava is UTF-8-safe and uses a temp config; the reload stamp is user-scoped; waybar/noctalia declare their package dependencies.
 - Optional `ZEKlive` install option: bundles `ZEK-blv` / `ZEK-danmaku` / `bilibili_live_stream` into `~/.local`.
 - Preset and Noctalia-auto modes are independent: `ZEK-niri palette` (and the watcher) only apply the config mappings while waybar is in preset mode; `--force` overrides.
-- `waybar_colors = <wallpaper> = <css>` mapping: per-wallpaper waybar colours, applied by `ZEK-niri palette`/the watcher (switches `style.css`'s `@import` and reloads waybar).
+- `waybar_colors = <wallpaper> = <css>` mapping: per-wallpaper waybar colours, applied by `ZEK-niri palette`/the watcher (rewrites the stable `colors-active.css` entry and reloads waybar).
 - `ZEK-niri watch` follows noctalia wallpaper changes and applies each wallpaper's palette; `watch install` sets up a systemd user service, niri autostarts it, and `ZEK-niri palette --wait` fixes the waybar click race.
 - `ZEK-niri watch` follows noctalia wallpaper changes and applies each wallpaper's palette; auto-started from niri and triggered from the waybar wallpaper module.
 

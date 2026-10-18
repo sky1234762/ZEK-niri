@@ -1,5 +1,5 @@
 /* 主题配色：由 modules-center 的「配色切换」模块（custom/colors-theme）一键切换 */
-@import "colors-noctalia.css";
+@import "colors-active.css";
 
 /* 核心逻辑：全相对单位 (em) 改造
    基准字体大小：14.5px

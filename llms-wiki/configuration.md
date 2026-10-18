@@ -54,12 +54,13 @@ then `default`, then `monitors.*`, from `~/.local/state/noctalia/settings.toml`)
 resolves the paired palette (exact path first, then filename), installs it into
 noctalia's palettes dir if it lives elsewhere, and runs
 `noctalia msg color-scheme-set custom <stem>`. Only applies while waybar is in
-preset mode (`style.css` does not import `colors-noctalia.css`), so preset and
-Noctalia-auto modes stay independent; `--force` overrides. Pass a wallpaper path
-to override, or `ZEK-niri palette list` to print the map. An unmapped wallpaper is
-reported and exits non-zero, unless a bare global `preset_palette` is set (then
-that is used). `toggle-colors.sh` uses the same mapping for its preset mode via
-`ZEK-niri palette`; it no longer forces the first mapping when nothing matches. Noctalia has no
+preset mode (the stable `colors-active.css` entry does not import
+`colors-noctalia.css`), so preset and Noctalia-auto modes stay independent;
+`--force` overrides. Pass a wallpaper path to override, or `ZEK-niri palette
+list` to print the map. An unmapped wallpaper falls back to the bare global
+`preset_palette` when set, otherwise to the built-in `ZEKniri-preset`.
+`toggle-colors.sh` uses the same mapping for its preset mode via `ZEK-niri
+palette`, with the same `ZEKniri-preset` fallback. Noctalia has no
 wallpaper-change hook, so bind this command to run after switching wallpaper.
 
 ## Waybar colours per wallpaper
@@ -68,17 +69,19 @@ wallpaper-change hook, so bind this command to run after switching wallpaper.
 
     waybar_colors = ~/图片/wallpaper/foo.jpg = ~/.config/waybar/colors/foo.css
 
-When the wallpaper changes, `ZEK-niri palette` (and the watcher) rewrites waybar's
-`style.css` `@import` to that CSS — relative to `~/.config/waybar/` when possible,
-otherwise the external file is copied to `~/.config/waybar/colors-wallpaper.css` —
-and reloads waybar. A wallpaper without a mapping keeps the preset/auto mode
-chosen by `toggle-colors.sh`.
+When the wallpaper changes, `ZEK-niri palette` (and the watcher) rewrites the
+stable `colors-active.css` entry — the one file `style.css` imports — to point at
+that CSS (relative to `~/.config/waybar/` when possible, otherwise the external
+file is copied to `~/.config/waybar/colors-wallpaper.css`) and reloads waybar. A
+wallpaper without a mapping falls back to `colors.css`. Because `style.css` is
+static and `colors-active.css` is preserved, the chosen mode survives
+`install`/`update`.
 
 ## Watcher & waybar
 
 `ZEK-niri watch [seconds]` polls noctalia's `[wallpaper.last].path` and applies
 the paired palette whenever the wallpaper changes. It is a no-op while waybar's
-`style.css` imports `colors-noctalia.css` (Noctalia-auto mode), takes no
+`colors-active.css` imports `colors-noctalia.css` (Noctalia-auto mode), takes no
 single-instance lock, and only one watcher runs at a time (its own lock).
 
 Start it once as a systemd user service (persists across sessions):

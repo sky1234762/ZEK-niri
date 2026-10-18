@@ -8,7 +8,7 @@
 set -euo pipefail
 
 MIN_GAP_MS="${WAYBAR_RELOAD_GAP_MS:-1000}"
-STAMP="${XDG_RUNTIME_DIR:-/tmp}/waybar-reload.stamp"
+STAMP="${XDG_RUNTIME_DIR:-/tmp}/waybar-reload-$UID.stamp"
 LOCK="${STAMP}.lock"
 
 now_ms() { date +%s%3N; }

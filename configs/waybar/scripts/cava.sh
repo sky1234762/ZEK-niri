@@ -1,9 +1,11 @@
 #!/bin/bash
+# 强制 UTF-8：下面按“字符”而不是“字节”切分 CHARS；C locale 会把 ▁ 当 3 字节。
+export LC_ALL=C.UTF-8
 
 # 配置
 CHARS="▁▂▃▄▅▆▇█"
 BARS=10
-CONF="/tmp/waybar_cava_config"
+CONF="$(mktemp -t waybar_cava_config.XXXXXX)"
 
 # 初始化
 len=$((${#CHARS}-1))
@@ -27,6 +29,7 @@ EOF
 cleanup() {
     trap - EXIT INT TERM
     pkill -P $$ 2>/dev/null
+    rm -f "$CONF"
     echo "$idle_output"
     exit 0
 }

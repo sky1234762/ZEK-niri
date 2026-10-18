@@ -9,7 +9,6 @@ Noctalia has no wallpaper-change hook, so the switch is driven by the
 """
 
 import fcntl
-import re
 import shutil
 import subprocess
 import time
@@ -17,7 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
-from zekniri.config import get_config, reload_config
+from zekniri.config import default_preset_palette, get_config, reload_config
 from zekniri.constants import CLI_CMD, Colors
 from zekniri.core import get_env, log_msg, timed_run
 from zekniri.i18n import msg
@@ -93,25 +92,29 @@ def _reload_waybar() -> None:
 
 
 def apply_waybar_colors(wallpaper: Path) -> bool:
-    """Point waybar's ``style.css`` at ``wallpaper``'s mapped CSS and reload.
+    """Point the stable ``colors-active.css`` at the wallpaper's CSS and reload.
 
-    No-op when the wallpaper has no ``waybar_colors`` mapping or the file is
-    missing, so the preset/auto mode chosen by ``toggle-colors.sh`` is preserved.
+    Falls back to the hand-written ``colors.css`` when the wallpaper has no
+    ``waybar_colors`` mapping, so an unmapped wallpaper never keeps the previous
+    wallpaper's colours.
     """
+    waybar_dir = get_env().config_dir / "waybar"
     css = get_config().waybar_colors_for(wallpaper)
-    style = get_env().config_dir / "waybar" / "style.css"
-    if css is None or not css.is_file() or not style.is_file():
+    if css is None:
+        css = waybar_dir / "colors.css"
+    if not css.is_file():
         return False
     target = _waybar_import_target(css)
+    active = waybar_dir / "colors-active.css"
+    content = f'/* 当前生效的配色入口（由 ZEK-niri 改写）。 */\n@import "{target}";\n'
     try:
-        text = style.read_text(encoding="utf-8")
+        if active.read_text(encoding="utf-8") == content:
+            return False
     except OSError:
-        return False
-    new = re.sub(r'@import\s+"[^"]*\.css";', f'@import "{target}";', text, count=1)
-    if new == text:
-        return False
+        pass
+    active.parent.mkdir(parents=True, exist_ok=True)
     try:
-        style.write_text(new, encoding="utf-8")
+        active.write_text(content, encoding="utf-8")
     except OSError:
         return False
     _reload_waybar()
@@ -157,10 +160,8 @@ def apply_palette(wallpaper: Optional[str] = None, wait: float = 0.0, force: boo
     cfg = get_config()
     palette = cfg.palette_for(target)
     if palette is None:
-        if not cfg.default_palettes:
-            print(msg("palette_unmapped", target.name), flush=True)
-            return False
-        palette = cfg.default_palettes[0]
+        palette = cfg.default_palettes[0] if cfg.default_palettes else default_preset_palette()
+        print(msg("palette_default_used", target.name, palette.stem), flush=True)
 
     palette = ensure_palette_installed(palette)
     name = palette.stem
@@ -190,13 +191,12 @@ def list_mappings() -> None:
 def _preset_mode_active() -> bool:
     """False when waybar currently imports noctalia's auto-generated colours.
 
-    Guards the watcher so it does not fight the "Noctalia auto" mode: the mode is
-    read from waybar's ``style.css`` ``@import`` line. Missing file means "don't
-    block".
+    Reads the stable ``colors-active.css`` entry (``style.css`` imports it), so
+    the check survives a ``style.css`` redeploy.
     """
-    style = get_env().config_dir / "waybar" / "style.css"
+    active = get_env().config_dir / "waybar" / "colors-active.css"
     try:
-        return "colors-noctalia.css" not in style.read_text(encoding="utf-8")
+        return "colors-noctalia.css" not in active.read_text(encoding="utf-8")
     except OSError:
         return True
 
@@ -215,12 +215,14 @@ def watch(interval: float = 1.0) -> int:
     global _WATCH_LOCK
     lock_path = get_env().state_dir / "watch.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    _WATCH_LOCK = open(lock_path, "w")
+    lock = open(lock_path, "w")
     try:
-        fcntl.flock(_WATCH_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        lock.close()
         print(msg("watch_already_running"), flush=True)
         return 0
+    _WATCH_LOCK = lock
 
     print(msg("watch_started", interval), flush=True)
     last = None
@@ -235,6 +237,9 @@ def watch(interval: float = 1.0) -> int:
             time.sleep(interval)
     except KeyboardInterrupt:
         print(msg("watch_stopped"), flush=True)
+    finally:
+        _WATCH_LOCK = None
+        lock.close()
     return 0
 
 
