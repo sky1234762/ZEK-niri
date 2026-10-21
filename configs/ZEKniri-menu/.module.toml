@@ -1,0 +1,10 @@
+# ZEK-menu is a bundled standalone tool, not a ~/.config/<app> dotfile.
+# Launcher -> ~/.local/bin, modules -> ~/.local/share/ZEKniri, config ->
+# ~/.config/ZEKniri/ZEKniri-menu.conf.  `deploy = false` keeps the config
+# scanner from deploying this directory to ~/.config/ZEKniri-menu.
+[packages]
+label = "ZEK-menu"
+repo = []
+deploy = false
+category = "tool"
+detect = "ZEK-menu"

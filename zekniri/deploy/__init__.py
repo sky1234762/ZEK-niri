@@ -23,7 +23,9 @@ from zekniri.deploy.assets import (
 )
 from zekniri.deploy.tools import (
     ToolDeployResult,
+    deploy_menu,
     deploy_zeklive,
+    menu_present,
     zeklive_present,
 )
 from zekniri.deploy.deploy import (
@@ -31,6 +33,7 @@ from zekniri.deploy.deploy import (
     _phase_atomic_deployment,
     deploy_selected_configs,
     deploy_runtime_conf,
+    deploy_menu_app,
     render_completion_screen,
     test_deploy,
 )
@@ -40,6 +43,7 @@ __all__ = [
     "discover_config_items",
     "deploy_selected_configs",
     "deploy_runtime_conf",
+    "deploy_menu_app",
     "render_completion_screen",
     "test_deploy",
     "deploy_assets",
@@ -47,6 +51,8 @@ __all__ = [
     "AssetDeployResult",
     "deploy_zeklive",
     "zeklive_present",
+    "deploy_menu",
+    "menu_present",
     "ToolDeployResult",
     "load_manifest",
     "load_manifest_for",

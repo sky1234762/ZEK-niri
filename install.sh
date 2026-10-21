@@ -75,7 +75,7 @@ engine_is_complete() {
     local target_dir="$1"
     local module
     [ -f "$target_dir/install.sh" ] || return 1
-    for module in __init__ __main__ cli constants core deps doctor i18n network tui; do
+    for module in __init__ __main__ cli constants core deps doctor i18n menu_app menu_config menu_fullscreen menu_instance network tui; do
         [ -f "$target_dir/zekniri/$module.py" ] || return 1
     done
     for module in __init__ atomic assets deploy manifest templates; do

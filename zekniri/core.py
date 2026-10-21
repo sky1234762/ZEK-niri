@@ -98,6 +98,16 @@ class Environment:
         self.home = Path(os.environ.get("HOME", str(Path.home())))
         self.config_dir = self.home / ".config"
 
+        raw_data = os.environ.get("XDG_DATA_HOME")
+        if raw_data:
+            data_path = Path(raw_data)
+            try:
+                self.data_home = data_path if data_path.is_relative_to(self.home) else self.home / ".local/share"
+            except (ValueError, AttributeError):
+                self.data_home = self.home / ".local/share"
+        else:
+            self.data_home = self.home / ".local/share"
+
         raw_state = os.environ.get("XDG_STATE_HOME")
         if raw_state:
             state_path = Path(raw_state)

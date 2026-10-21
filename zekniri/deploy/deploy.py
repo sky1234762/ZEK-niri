@@ -12,12 +12,13 @@ from typing import List, Optional
 
 from zekniri.constants import CLI_CMD, Colors
 from zekniri.config import CONF_NAME, get_config
+
 from zekniri.core import get_env, log_msg
 from zekniri.i18n import msg
 from zekniri.tui import read_key, show_logo, raw_input_mode, _drain_pending, enter_alt_screen
 from zekniri.deploy.atomic import atomic_replace_item
 from zekniri.deploy.assets import AssetDeployResult, assets_present, deploy_assets
-from zekniri.deploy.tools import ToolDeployResult
+from zekniri.deploy.tools import ToolDeployResult, deploy_menu
 from zekniri.deploy.manifest import discover_deployable_apps, load_manifest
 from zekniri.deploy.templates import _phase_render_templates
 
@@ -54,6 +55,11 @@ def _deploy_state_files(app: str, src: Path, state_files: List[str]) -> None:
         log_msg("INFO", f"Deployed state file ~/.local/state/{app}/{rel}")
 
 
+def deploy_menu_app() -> bool:
+    """Install the standalone menu launcher, its modules, and seed its config."""
+    return deploy_menu().copied > 0
+
+
 def deploy_runtime_conf() -> bool:
     """Seed ``~/.config/<PROJECT_NAME>/ZEK-niri.conf`` if absent (no-clobber).
 
@@ -61,14 +67,15 @@ def deploy_runtime_conf() -> bool:
     defaults, so once it exists it is never overwritten.
     """
     env = get_env()
+    changed = False
+    env.nyx_dir.mkdir(parents=True, exist_ok=True)
     src = env.repo_dir / CONF_NAME
     dest = env.nyx_dir / CONF_NAME
-    if not src.is_file() or dest.exists():
-        return False
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
-    log_msg("INFO", f"Seeded runtime config {dest}")
-    return True
+    if src.is_file() and not dest.exists():
+        shutil.copy2(src, dest)
+        log_msg("INFO", f"Seeded runtime config {dest}")
+        changed = True
+    return changed
 
 
 def _warn_missing_preset() -> None:
@@ -160,6 +167,7 @@ def deploy_selected_configs(
     if failed_items:
         print(msg("deploy_failed", ", ".join(failed_items)), file=sys.stderr)
         return failed_items
+    deploy_menu()
     _phase_render_templates()
     print(msg("copy_done"))
     return []

@@ -54,6 +54,48 @@ def _find_live_stream(src_dir: Path, share_dir: Path) -> Optional[Path]:
     return None
 
 
+def menu_present() -> bool:
+    """True when the repo ships the standalone ZEK-menu launcher."""
+    return (get_env().configs_src / "ZEKniri-menu" / "ZEK-menu").is_file()
+
+
+def deploy_menu() -> ToolDeployResult:
+    """Install ``ZEK-menu``, its Python package, and seed its config.
+
+    Mirrors ``deploy_zeklive``: launcher into ``~/.local/bin``, support modules
+    into ``~/.local/share/ZEKniri``, and the user config into
+    ``~/.config/ZEKniri/ZEKniri-menu.conf`` (no-clobber).
+    """
+    env = get_env()
+    src_dir = env.configs_src / "ZEKniri-menu"
+    bin_dir = env.home / ".local" / "bin"
+    package_dir = env.data_home / "ZEKniri" / "zekniri"
+    result = ToolDeployResult(name="ZEK-menu", destination=str(bin_dir))
+    if not menu_present():
+        log_msg("INFO", "ZEK-menu not shipped; skipping")
+        return result
+
+    if _copy_exec(src_dir / "ZEK-menu", bin_dir / "ZEK-menu"):
+        result.copied += 1
+
+    package_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("__init__.py", "menu_app.py", "menu_config.py", "menu_instance.py", "menu_fullscreen.py"):
+        src = env.repo_dir / "zekniri" / name
+        if src.is_file():
+            shutil.copy2(src, package_dir / name)
+            result.copied += 1
+
+    conf_src = src_dir / "ZEKniri-menu.conf"
+    conf_dest = env.nyx_dir / "ZEKniri-menu.conf"
+    if conf_src.is_file() and not conf_dest.exists():
+        conf_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(conf_src, conf_dest)
+        result.copied += 1
+
+    log_msg("INFO", f"ZEK-menu deployed: {result.copied} file(s) -> {bin_dir}")
+    return result
+
+
 def deploy_zeklive() -> ToolDeployResult:
     """Install ``ZEK-blv`` / ``ZEK-danmaku`` and the live-stream helper.
 

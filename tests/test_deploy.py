@@ -95,12 +95,66 @@ class DeployTest(unittest.TestCase):
             self.assertTrue(deploy_runtime_conf())
             dest = t.home / ".config" / "ZEKniri" / "ZEK-niri.conf"
             self.assertEqual(dest.read_text(encoding="utf-8"), "noctalia_scheme_name = vivid\n")
-            # an existing user copy is never overwritten
-            (t.home / "ZEK-niri.conf").write_text(
-                "noctalia_scheme_name = other\n", encoding="utf-8"
-            )
+            (t.home / "ZEK-niri.conf").write_text("noctalia_scheme_name = other\n", encoding="utf-8")
             self.assertFalse(deploy_runtime_conf())
             self.assertEqual(dest.read_text(encoding="utf-8"), "noctalia_scheme_name = vivid\n")
+
+    def _make_menu(self, t):
+        src = t.home / "configs" / "ZEKniri-menu"
+        src.mkdir(parents=True)
+        (src / "ZEK-menu").write_text("#!/usr/bin/python3\nfrom zekniri.menu_app import main\n", encoding="utf-8")
+        (src / "ZEKniri-menu.conf").write_text(
+            "appimage_path = ~/Apps/tool.AppImage\n", encoding="utf-8"
+        )
+        (src / ".module.toml").write_text("[packages]\nrepo = []\ndeploy = false\n", encoding="utf-8")
+        package = t.home / "zekniri"
+        package.mkdir()
+        for name in ("__init__.py", "menu_app.py", "menu_config.py", "menu_instance.py", "menu_fullscreen.py"):
+            (package / name).write_text("# module\n", encoding="utf-8")
+
+    def test_standalone_menu_deployed(self):
+        from zekniri.deploy.tools import deploy_menu
+
+        with TempEnv() as t:
+            self._make_menu(t)
+            result = deploy_menu()
+            self.assertEqual(result.name, "ZEK-menu")
+            self.assertGreaterEqual(result.copied, 6)
+            installed = t.home / ".local" / "share" / "ZEKniri" / "zekniri"
+            self.assertTrue((installed / "menu_app.py").is_file())
+            self.assertTrue((installed / "menu_config.py").is_file())
+            self.assertTrue((installed / "menu_instance.py").is_file())
+            self.assertTrue((installed / "menu_fullscreen.py").is_file())
+            launcher = t.home / ".local" / "bin" / "ZEK-menu"
+            self.assertTrue(launcher.stat().st_mode & 0o111)
+            self.assertIn("from zekniri.menu_app import main", launcher.read_text(encoding="utf-8"))
+            conf = t.home / ".config" / "ZEKniri" / "ZEKniri-menu.conf"
+            self.assertEqual(conf.read_text(encoding="utf-8"), "appimage_path = ~/Apps/tool.AppImage\n")
+
+    def test_menu_conf_is_not_overwritten(self):
+        from zekniri.deploy.tools import deploy_menu
+
+        with TempEnv() as t:
+            self._make_menu(t)
+            conf = t.home / ".config" / "ZEKniri" / "ZEKniri-menu.conf"
+            conf.parent.mkdir(parents=True, exist_ok=True)
+            conf.write_text("appimage_path = ~/Apps/mine.AppImage\n", encoding="utf-8")
+            deploy_menu()
+            self.assertEqual(conf.read_text(encoding="utf-8"), "appimage_path = ~/Apps/mine.AppImage\n")
+
+    def test_menu_source_not_deployed_to_config(self):
+        from zekniri.deploy.manifest import discover_deployable_apps
+
+        with TempEnv() as t:
+            self._make_menu(t)
+            self.assertNotIn("ZEKniri-menu", discover_deployable_apps())
+
+    def test_menu_does_not_add_a_package(self):
+        from zekniri.deps import _aggregate_required_packages
+
+        with TempEnv() as t:
+            self._make_menu(t)
+            self.assertNotIn("ZEKniri-menu", _aggregate_required_packages())
 
     def test_missing_source_reports_failure(self):
         with TempEnv() as t:

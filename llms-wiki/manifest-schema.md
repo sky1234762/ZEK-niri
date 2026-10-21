@@ -16,6 +16,7 @@ All fields live under `[packages]`:
 | `preserve` | `[]` | exact filenames kept across deploys |
 | `chmod` | `[]` | globs (relative to app dir) set executable |
 | `state` | `[]` | files deployed to `<state_home>/<app>/` instead of `~/.config` (no-clobber seed; e.g. noctalia `settings.toml`) |
+| `deploy` | `true` | set `false` for a `configs/<app>/` directory that ships a bundled tool instead of `~/.config/<app>` dotfiles (e.g. `ZEKniri-menu`) |
 | `label` | `<dir name>` | menu display name |
 | `detect` | `<dir name>` | command name used to detect installation |
 
@@ -40,7 +41,7 @@ Block order is menu order. An app in both files is one entry with
 `is_deployable=True` and `is_optional=True`: optional-axis fields come from the
 toml, config-axis fields (`preserve`, `chmod`, `state`) stay in the `.module.toml`.
 
-## `state` files vs `preserve`
+## Runtime files and preservation
 
 - `state` — repo-relative paths that are **excluded** from the `~/.config/<app>/`
   deploy and instead copied (once, never overwriting) to

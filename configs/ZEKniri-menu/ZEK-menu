@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+"""ZEK-menu launcher.
+
+Installed to ``~/.local/bin/ZEK-menu``; the Python package is deployed to
+``$XDG_DATA_HOME/ZEKniri/zekniri`` (usually ``~/.local/share/ZEKniri/zekniri``).
+Running it from the repo also works via the repo-root fallback.
+"""
+
+from pathlib import Path
+import os
+import sys
+
+os.environ.setdefault("GDK_BACKEND", "wayland")
+data_home = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+here = Path(__file__).resolve().parent
+for root in (data_home / "ZEKniri", here.parent.parent):
+    if (root / "zekniri" / "menu_app.py").is_file():
+        sys.path.insert(0, str(root))
+        break
+
+from zekniri.menu_app import main
+
+raise SystemExit(main())

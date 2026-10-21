@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. One line per user-visible
 change, natural language, only the net change versus the last release.
 
+## [1.1.0]
+
+- `ZEK-menu` is now installed with the config package: launcher → `~/.local/bin/ZEK-menu`, Python modules → `~/.local/share/ZEKniri/zekniri/`, sample config → `~/.config/ZEKniri/ZEKniri-menu.conf` (no-clobber). `configs/ZEKniri-menu` declares `deploy = false` so it is not mistaken for a `~/.config` dotfile app.
+- `toggle-colors.sh` now falls back to a direct waybar reload when `noctalia` is not installed, instead of leaving the click with no visible effect.
+
 ## [1.0.5]
 
 - Waybar hardening: `style.css` now imports a stable `colors-active.css` entry that is preserved across deploys (the chosen mode no longer resets on `install`/`update`); unmapped wallpapers fall back to `ZEKniri-preset` / `colors.css`; cava is UTF-8-safe and uses a temp config; the reload stamp is user-scoped; waybar/noctalia declare their package dependencies.

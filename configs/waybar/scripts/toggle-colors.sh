@@ -82,6 +82,26 @@ NOCTALIA_SCHEME_NAME="$(conf_get noctalia_scheme_name "soft")"
 # 静默调用 noctalia IPC
 ns() { noctalia msg "$@" >/dev/null 2>&1 || true; }
 
+HAS_NOCTALIA=0
+command -v noctalia >/dev/null 2>&1 && HAS_NOCTALIA=1
+
+# 没有 noctalia 时直接重载 waybar，避免“点了没反应”。
+reload_waybar() {
+    if [ -x "$HOME/.config/waybar/scripts/reload-waybar.sh" ]; then
+        bash "$HOME/.config/waybar/scripts/reload-waybar.sh" >/dev/null 2>&1 || true
+    elif command -v waybar >/dev/null 2>&1; then
+        pkill -USR2 -x waybar >/dev/null 2>&1 || true
+    fi
+}
+
+apply_templates() {
+    if [ "$HAS_NOCTALIA" = 1 ]; then
+        ns templates-apply
+    else
+        reload_waybar
+    fi
+}
+
 # 当前生效的配色文件名（读 colors-active.css，不限制文件名前缀）
 active() {
     grep -oE '@import "[^"]*\.css"' "$ACTIVE_FILE" | head -1 | sed -E 's/@import "(.*)"/\1/'
@@ -99,7 +119,7 @@ apps_enable() {
     fi
     ns config-reload
     sleep 0.3
-    ns templates-apply
+    apply_templates
 }
 
 # 撤销并禁用 Alacritty / cava 模板
@@ -135,8 +155,8 @@ case "${1:-status}" in
       else
         ns color-scheme-set custom "$PRESET_PALETTE"
       fi
-      # 单次重载：借 waybar 模板的 post_hook（已防抖）
-      ns templates-apply
+      # 单次重载：有 noctalia 走模板 post_hook，没有就直接重载 waybar
+      apply_templates
     else
       # -> Noctalia 模式
       set_import "$NOCTALIA"

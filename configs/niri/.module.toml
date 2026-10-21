@@ -4,5 +4,6 @@
 # repo. All are preserved across updates. nirimation is a script.
 [packages]
 label = "Niri"
+repo = ["niri", "gtk3", "gtk-layer-shell", "python-gobject"]
 preserve = ["cfg/display.kdl", "cfg/input.kdl", "animations.kdl", "animations/config.toml", "animations/showcase"]
 chmod = ["animations/nirimation"]

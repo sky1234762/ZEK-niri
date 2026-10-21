@@ -49,3 +49,9 @@ Symlinks *inside* `~/.config` (runtime state) are fine and preserved.
 Tool-owned data lives under `~/.config/<PROJECT_NAME>/` (snapshots) and
 `~/.local/state/<PROJECT_NAME>/` (lock, log). Nothing of zekniri's own goes into
 `~/.config/<app>/`; `__custom__` is part of the app's config, not zekniri metadata.
+
+The standalone `ZEK-menu` is a GTK 3 / gtk-layer-shell overlay. The launcher is
+installed to `~/.local/bin/ZEK-menu`, its Python package to
+`~/.local/share/ZEKniri/zekniri/`, and its config to
+`~/.config/ZEKniri/ZEKniri-menu.conf` (seeded once, never overwritten). It does
+not depend on Noctalia and uses `MouseMiddle` and `Shift_R` Niri bindings to open.

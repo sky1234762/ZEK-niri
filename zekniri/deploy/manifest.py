@@ -79,6 +79,7 @@ def load_manifest(app_src: Path, is_optional: bool = False) -> ModuleManifest:
     pkg_repo = packages.get("repo")
     if pkg_repo is None:
         pkg_repo = [name]
+    deploy = bool(packages.get("deploy", True))
 
     return ModuleManifest(
         name=name,
@@ -91,7 +92,7 @@ def load_manifest(app_src: Path, is_optional: bool = False) -> ModuleManifest:
         label=packages.get("label", name),
         category=packages.get("category", ""),
         detect=packages.get("detect", name),
-        is_deployable=_is_deployable(app_src),
+        is_deployable=_is_deployable(app_src) and deploy,
         is_optional=is_optional,
     )
 

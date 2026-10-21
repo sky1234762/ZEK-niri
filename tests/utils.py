@@ -30,12 +30,13 @@ class TempEnv:
         (home / "configs").mkdir(parents=True, exist_ok=True)
         (home / "assets").mkdir(parents=True, exist_ok=True)
 
-        for key in ("HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"):
+        for key in ("HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
             self._old_env[key] = os.environ.get(key)
         os.environ["HOME"] = str(home)
         os.environ["XDG_STATE_HOME"] = str(home / ".local" / "state")
         os.environ["XDG_CONFIG_HOME"] = str(home / ".config")
         os.environ["XDG_CACHE_HOME"] = str(home / ".cache")
+        os.environ["XDG_DATA_HOME"] = str(home / ".local" / "share")
 
         core._ENV = None
         core._VERSION_CACHE = ""

@@ -12,6 +12,10 @@ binds {
     Mod+Return                          hotkey-overlay-title="Open Terminal: Alacritty" { spawn "alacritty"; }
     Mod+B                               hotkey-overlay-title="Open Browser: firefox" { spawn "firefox"; }
 
+    // --- ZEKniri overlay menu ---
+    MouseMiddle                         hotkey-overlay-title="Open ZEKniri menu" { spawn-sh "exec \"$HOME/.local/bin/ZEK-menu\""; }
+    Shift_R                             hotkey-overlay-title="Open ZEKniri menu" { spawn-sh "exec \"$HOME/.local/bin/ZEK-menu\""; }
+
     // --- Noctalia ---
     Mod+Shift+Return                    hotkey-overlay-title="Open Wallpaper Selector: noctalia wallpaper toggle" { spawn-sh "noctalia msg panel-toggle wallpaper"; }
     Mod+S                               hotkey-overlay-title="Open Control Center: noctalia controlCenter" { spawn-sh "noctalia msg panel-toggle control-center"; }

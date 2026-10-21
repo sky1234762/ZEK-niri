@@ -3,7 +3,11 @@
 > zekniri atomically deploys a `configs/` tree into `~/.config`. Three layers stack
 > (defaults → `__custom__` → manifest `preserve`), two install modes exist
 > (local checkout / remote cache), the engine is pure Python stdlib (3.11+, for
-> `tomllib`). Repo = source of truth; `~/.config` = derived state.
+> `tomllib`). The optional `ZEK-menu` overlay uses GTK 3 and gtk-layer-shell.
+> Repo = source of truth; `~/.config` = derived state.
+
+The optional standalone `ZEK-menu` overlay uses GTK 3, gtk-layer-shell, and
+Python GObject; it is independent of Noctalia.
 
 This is the LLM-friendly reference: one topic per page, self-contained, load on
 demand. Source code is always the final truth; this wiki mirrors it.
@@ -29,6 +33,10 @@ Wallpapers live in `assets/wallpapers/` (deployed to `~/图片/wallpaper`, i.e. 
 Bundled tools live in `ZEKlive/` and install into `~/.local` via the separate,
 opt-in `ZEKlive` install option: `ZEK-blv`, `ZEK-danmaku`, and the
 `bilibili_live_stream` helper (`~/.local/share/ZEK-blv/`).
+The transparent pointer menu is implemented in `zekniri/menu_app.py`, deployed
+to `~/.local/bin/ZEK-menu` (modules in `~/.local/share/ZEKniri/zekniri/`,
+config seeded to `~/.config/ZEKniri/ZEKniri-menu.conf`), and opens from the
+Niri middle-button binding.
 Per-app manifests only declare what is exceptional — see
 [manifest-schema](manifest-schema.md). `niri` and `waybar` use `preserve`/`chmod`;
 the rest use defaults.
