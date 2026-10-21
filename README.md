@@ -25,19 +25,7 @@
 - **可自定义配置文件** — 配置文件现已加入，你可以自己决定使用哪个取色器让你的桌面更好看。当然，你还可以把日志输出路径改到更显眼的位置，方便定位程序问题
 - **多款预设与壁纸** — 好消息是，已经完成了！你问配置文件呢？等我更新文件！
 - **直播工具加入** — 现已加入并集成我常用的直播工具，具体使用方法看[ZEK-blv](https://github.com/sky1234762/ZEK-blv)
-- **独立 ZEKniri 菜单** — 中键或右 Shift 呼出透明 Wayland 选项层；再次触发会关闭现有菜单。选项从指针右侧逐项滑入，不依赖 Noctalia
-
-AppImage 与备忘录路径配置在 `~/.config/ZEKniri/ZEKniri-menu.conf`：
-
-```ini
-appimage_path = ~/Applications/example.AppImage
-appimage_path = "/home/zek/Applications/Another App.AppImage"
-memo_path = ~/Documents/notes.txt
-```
-
-首次部署会把 `ZEK-menu` 装到 `~/.local/bin/`，Python 模块放到 `~/.local/share/ZEKniri/`，并在 `~/.config/ZEKniri/ZEKniri-menu.conf` 放一份示例配置（已存在则不覆盖）。图形菜单需要 GTK 3、gtk-layer-shell 与 Python GObject；Niri manifest 会声明这些依赖。菜单以透明 overlay 运行，选项从指针右侧逐项滑入，靠近屏幕边缘时自动翻到另一侧。
-
-聚焦窗口处于全屏时，`ZEK-menu` 会直接忽略启动请求；退出全屏后无需重启即可恢复使用。
+- **独立 ZEKniri 菜单** — 有很多appimage文件但是每次打开文件管理器很麻烦？不用担心，按下你的鼠标中键！
 
 ## 配置结构
 
@@ -100,6 +88,17 @@ ZEK-niri bug                       日志
 ZEK-niri uninstall [standard|keep-data|purge]
 ZEK-niri test                      沙箱部署（开发者）
 ```
+## 关于附加菜单
+
+AppImage 与备忘录路径配置在 `~/.config/ZEKniri/ZEKniri-menu.conf`：
+
+```ini
+appimage_path = ~/Applications/example.AppImage
+appimage_path = "/home/zek/Applications/Another App.AppImage"
+memo_path = ~/Documents/notes.txt
+```
+
+首次部署会把 `ZEK-menu` 装到 `~/.local/bin/`，Python 模块放到 `~/.local/share/ZEKniri/`，并在 `~/.config/ZEKniri/ZEKniri-menu.conf` 放一份示例配置（已存在则不覆盖）。图形菜单需要 GTK 3、gtk-layer-shell 与 Python GObject；Niri manifest 会声明这些依赖。菜单以透明 overlay 运行，选项从指针右侧逐项滑入，靠近屏幕边缘时自动翻到另一侧。
 
 ## 致谢与主页
 - QQ：`1846318834` QQ(备用): `3456599262` 
