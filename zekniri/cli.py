@@ -72,7 +72,7 @@ def run_master_component_menu(mode: str = "full") -> Optional[dict]:
     for item in discover_config_items():
         entries.append(CheckboxEntry(key=f"config_{item}", label=item, checked=True))
 
-    if mode == "full" and assets_present():
+    if assets_present():
         entries.append(CheckboxEntry(key="assets", label=msg("master_item_assets"), checked=True))
 
     if zeklive_present():

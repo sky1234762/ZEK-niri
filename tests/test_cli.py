@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from tests.utils import TempEnv
 from zekniri import cli
@@ -31,6 +32,16 @@ class CliTest(unittest.TestCase):
     def test_install_rejects_bad_mode(self):
         with self.assertRaises(SystemExit):
             cli._cmd_install(["nonsense"])
+
+    def test_master_menu_offers_wallpaper_pack_in_config_mode(self):
+        with TempEnv() as t:
+            wallpapers = t.home / "assets" / "wallpapers"
+            wallpapers.mkdir(parents=True)
+            (wallpapers / "a.jpg").write_text("x", encoding="utf-8")
+            with mock.patch("zekniri.cli.CheckboxList") as cls:
+                cls.return_value.run.return_value = ["assets"]
+                chosen = cli.run_master_component_menu("config")
+            self.assertTrue(chosen["assets"])
 
     def test_commands_dict_shape(self):
         for name, (handler, usage) in cli.COMMANDS.items():

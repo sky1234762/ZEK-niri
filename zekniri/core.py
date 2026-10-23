@@ -153,16 +153,60 @@ def get_env() -> Environment:
 _PICS_DIR_CACHE: Optional[Path] = None
 
 
-def get_pics_dir() -> Path:
-    """Resolve the user's Pictures directory (XDG), with a safe fallback.
+def _pictures_dir_from_env(home: Path) -> Optional[Path]:
+    """Explicit ``$XDG_PICTURES_DIR`` exported by the session."""
+    raw = os.environ.get("XDG_PICTURES_DIR", "").strip().strip('"').strip("'")
+    if not raw:
+        return None
+    raw = raw.replace("${HOME}", str(home)).replace("$HOME", str(home))
+    return Path(os.path.expanduser(os.path.expandvars(raw)))
 
-    Used as the base for the wallpaper folder so files land where desktop tools
-    expect them (e.g. ``~/图片``) instead of a dot directory.
+
+def _pictures_dir_from_user_dirs(home: Path) -> Optional[Path]:
+    """Read ``XDG_PICTURES_DIR`` from ``user-dirs.dirs`` without xdg-user-dir."""
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (home / ".config"))
+    try:
+        lines = (config_home / "user-dirs.dirs").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != "XDG_PICTURES_DIR":
+            continue
+        value = value.strip().strip('"').strip("'")
+        if not value:
+            continue
+        value = value.replace("${HOME}", str(home)).replace("$HOME", str(home))
+        return Path(os.path.expanduser(os.path.expandvars(value)))
+    return None
+
+
+def get_pics_dir() -> Path:
+    """Resolve the user's Pictures directory.
+
+    Precedence: exported ``$XDG_PICTURES_DIR`` → ``user-dirs.dirs`` →
+    ``xdg-user-dir PICTURES`` → ``~/Pictures``. Reading ``user-dirs.dirs``
+    directly keeps localised folder names working (e.g. ``~/图片``) even when
+    ``xdg-user-dir`` is unavailable.
     """
     global _PICS_DIR_CACHE
     if _PICS_DIR_CACHE is not None:
         return _PICS_DIR_CACHE
     home = get_env().home
+
+    explicit = _pictures_dir_from_env(home)
+    if explicit is not None and explicit != home:
+        _PICS_DIR_CACHE = explicit
+        return _PICS_DIR_CACHE
+
+    configured = _pictures_dir_from_user_dirs(home)
+    if configured is not None and configured != home:
+        _PICS_DIR_CACHE = configured
+        return _PICS_DIR_CACHE
+
     try:
         res = subprocess.run(
             ["xdg-user-dir", "PICTURES"],

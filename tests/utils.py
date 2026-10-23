@@ -32,6 +32,7 @@ class TempEnv:
 
         for key in ("HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
             self._old_env[key] = os.environ.get(key)
+        self._old_env["XDG_PICTURES_DIR"] = os.environ.pop("XDG_PICTURES_DIR", None)
         os.environ["HOME"] = str(home)
         os.environ["XDG_STATE_HOME"] = str(home / ".local" / "state")
         os.environ["XDG_CONFIG_HOME"] = str(home / ".config")

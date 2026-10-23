@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest import mock
 
 import zekniri.config as config
 from tests.utils import TempEnv
@@ -61,6 +63,31 @@ class AssetsTest(unittest.TestCase):
             result = deploy_assets()
             self.assertEqual(result.copied, 0)
             self.assertFalse((t.home / "Pictures" / "wallpaper").exists())
+
+    def test_pics_dir_reads_xdg_user_dirs(self):
+        from zekniri.core import get_pics_dir
+
+        with TempEnv() as t:
+            conf = t.home / ".config" / "user-dirs.dirs"
+            conf.parent.mkdir(parents=True, exist_ok=True)
+            conf.write_text('XDG_PICTURES_DIR="$HOME/图片"\n', encoding="utf-8")
+            self.assertEqual(get_pics_dir(), t.home / "图片")
+
+    def test_pics_dir_env_override(self):
+        from zekniri.core import get_pics_dir
+
+        with TempEnv() as t:
+            with mock.patch.dict(os.environ, {"XDG_PICTURES_DIR": str(t.home / "MyPics")}):
+                self.assertEqual(get_pics_dir(), t.home / "MyPics")
+
+    def test_pics_dir_ignores_home_entry(self):
+        from zekniri.core import get_pics_dir
+
+        with TempEnv() as t:
+            conf = t.home / ".config" / "user-dirs.dirs"
+            conf.parent.mkdir(parents=True, exist_ok=True)
+            conf.write_text('XDG_PICTURES_DIR="$HOME"\n', encoding="utf-8")
+            self.assertEqual(get_pics_dir(), t.home / "Pictures")
 
 
 if __name__ == "__main__":

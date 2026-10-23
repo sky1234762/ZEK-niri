@@ -46,8 +46,10 @@ file stems.
 
 The wallpaper **deploy** directory is derived from the parent dirs of the paired
 wallpaper files — there is no separate `wallpaper_dir`. With no pairs it falls
-back to `<Pictures>/wallpaper`. Multiple wallpaper files in a directory are
-always deployed in full.
+back to `<Pictures>/wallpaper`, resolved from `$XDG_PICTURES_DIR` →
+`~/.config/user-dirs.dirs` → `xdg-user-dir PICTURES` → `~/Pictures`, so
+localised names like `~/图片` work without `xdg-user-dir`. Multiple wallpaper
+files in a directory are always deployed in full.
 
 `ZEK-niri palette` reads noctalia's current wallpaper (`[wallpaper.last].path`,
 then `default`, then `monitors.*`, from `~/.local/state/noctalia/settings.toml`),
