@@ -69,19 +69,28 @@ def start_or_toggle(path: Path | None = None, *, allow_start: bool = True) -> so
             return None
         raise
     path.chmod(0o600)
+    _BOUND_INODES[server.fileno()] = path.stat().st_ino
     server.listen(4)
     server.setblocking(False)
     return server
 
 
+_BOUND_INODES: dict[int, int] = {}
+
+
 def release_listener(server: socket.socket, path: Path | None = None) -> None:
     path = path or socket_path()
+    fd = server.fileno()
+    bound_inode = _BOUND_INODES.pop(fd, None)
+    owned = False
     try:
-        owned_inode = server.fileno() >= 0 and path.is_socket()
+        info = path.stat()
+        if stat.S_ISSOCK(info.st_mode):
+            owned = info.st_ino == bound_inode if bound_inode is not None else info.st_uid == os.getuid()
     except OSError:
-        owned_inode = False
+        owned = False
     server.close()
-    if owned_inode:
+    if owned:
         try:
             path.unlink(missing_ok=True)
         except OSError:

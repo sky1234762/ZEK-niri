@@ -159,48 +159,7 @@ class PaletteTest(unittest.TestCase):
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 fd.close()
-    def test_apply_waybar_colors_copies_external(self):
-        with TempEnv() as t:
-            self._write_conf(t, "waybar_colors = ~/wp/a.jpg = ~/wb/a.css\n")
-            wp = t.home / "wp" / "a.jpg"
-            wp.parent.mkdir(parents=True)
-            wp.write_text("x", encoding="utf-8")
-            css = t.home / "wb" / "a.css"
-            css.parent.mkdir(parents=True)
-            css.write_text("* { color: red; }", encoding="utf-8")
 
-            with mock.patch("zekniri.palette._reload_waybar") as reload_:
-                self.assertTrue(palette.apply_waybar_colors(wp))
-                reload_.assert_called_once()
-            active = t.home / ".config" / "waybar" / "colors-active.css"
-            self.assertIn('@import "colors-wallpaper.css";', active.read_text(encoding="utf-8"))
-            self.assertTrue((t.home / ".config" / "waybar" / "colors-wallpaper.css").is_file())
-
-    def test_apply_waybar_colors_relative_import(self):
-        with TempEnv() as t:
-            self._write_conf(t, "waybar_colors = ~/wp/a.jpg = ~/.config/waybar/colors/a.css\n")
-            wp = t.home / "wp" / "a.jpg"
-            wp.parent.mkdir(parents=True)
-            wp.write_text("x", encoding="utf-8")
-            css = t.home / ".config" / "waybar" / "colors" / "a.css"
-            css.parent.mkdir(parents=True)
-            css.write_text("* {}", encoding="utf-8")
-
-            with mock.patch("zekniri.palette._reload_waybar"):
-                self.assertTrue(palette.apply_waybar_colors(wp))
-            active = t.home / ".config" / "waybar" / "colors-active.css"
-            self.assertIn('@import "colors/a.css";', active.read_text(encoding="utf-8"))
-
-    def test_apply_waybar_colors_unmapped_falls_back(self):
-        with TempEnv() as t:
-            self._write_conf(t, "preset_palette = ~/wp/a.jpg = ~/pal/a.json\n")
-            waybar = t.home / ".config" / "waybar"
-            waybar.mkdir(parents=True, exist_ok=True)
-            (waybar / "colors.css").write_text("* {}", encoding="utf-8")
-            with mock.patch("zekniri.palette._reload_waybar"):
-                self.assertTrue(palette.apply_waybar_colors(t.home / "wp" / "none.jpg"))
-            active = waybar / "colors-active.css"
-            self.assertIn('@import "colors.css";', active.read_text(encoding="utf-8"))
     def test_apply_palette_skips_in_noctalia_mode(self):
         with TempEnv() as t:
             self._write_conf(t, "preset_palette = ~/wp/a.jpg = ~/pal/a.json\n")
@@ -222,6 +181,19 @@ class PaletteTest(unittest.TestCase):
                     mock.patch("zekniri.palette.timed_run") as run:
                 run.return_value = mock.Mock(returncode=0)
                 self.assertTrue(palette.apply_palette(str(t.home / "wp" / "a.jpg"), force=True))
+
+    def test_apply_palette_does_not_touch_waybar_active_css(self):
+        with TempEnv() as t:
+            self._write_conf(t, "preset_palette = ~/wp/a.jpg = ~/pal/a.json\n")
+            waybar = t.home / ".config" / "waybar"
+            waybar.mkdir(parents=True, exist_ok=True)
+            active = waybar / "colors-active.css"
+            active.write_text('@import "colors.css";', encoding="utf-8")
+            with mock.patch("zekniri.palette.shutil.which", return_value="/usr/bin/noctalia"), \
+                    mock.patch("zekniri.palette.timed_run") as run:
+                run.return_value = mock.Mock(returncode=0)
+                self.assertTrue(palette.apply_palette(str(t.home / "wp" / "a.jpg")))
+            self.assertEqual(active.read_text(encoding="utf-8"), '@import "colors.css";')
 
 
 if __name__ == "__main__":

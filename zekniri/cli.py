@@ -339,7 +339,6 @@ def show_config() -> None:
         ("preset_palette", ", ".join(str(p) for p in cfg.default_palettes) if cfg.default_palettes else "(auto: first mapped / ZEKniri-preset)"),
         ("preset_palette_name", ", ".join(cfg.preset_palette_names)),
         ("wallpaper_palette", ", ".join(f"{w.name}->{p.stem}" for w, p in cfg.wallpaper_palettes) if cfg.wallpaper_palettes else "(none)"),
-        ("waybar_colors", ", ".join(f"{w.name}->{c.name}" for w, c in cfg.waybar_colors) if cfg.waybar_colors else "(none)"),
         ("log_path", str(cfg.log_path) if cfg.log_path else str(env.state_dir / "install.log")),
         ("noctalia_scheme_source", cfg.noctalia_scheme_source),
         ("noctalia_scheme_name", cfg.noctalia_scheme_name),

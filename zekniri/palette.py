@@ -68,60 +68,6 @@ def ensure_palette_installed(palette: Path) -> Path:
     return dest
 
 
-def _waybar_import_target(css: Path) -> str:
-    """CSS path for waybar's ``@import``; external files are copied in."""
-    waybar_dir = get_env().config_dir / "waybar"
-    try:
-        return css.relative_to(waybar_dir).as_posix()
-    except ValueError:
-        waybar_dir.mkdir(parents=True, exist_ok=True)
-        dest = waybar_dir / "colors-wallpaper.css"
-        shutil.copy2(css, dest)
-        return dest.name
-
-
-def _reload_waybar() -> None:
-    script = get_env().config_dir / "waybar" / "scripts" / "reload-waybar.sh"
-    if script.is_file():
-        subprocess.run(
-            ["bash", str(script)], check=False,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    else:
-        subprocess.run(["pkill", "-SIGUSR2", "waybar"], check=False)
-
-
-def apply_waybar_colors(wallpaper: Path) -> bool:
-    """Point the stable ``colors-active.css`` at the wallpaper's CSS and reload.
-
-    Falls back to the hand-written ``colors.css`` when the wallpaper has no
-    ``waybar_colors`` mapping, so an unmapped wallpaper never keeps the previous
-    wallpaper's colours.
-    """
-    waybar_dir = get_env().config_dir / "waybar"
-    css = get_config().waybar_colors_for(wallpaper)
-    if css is None:
-        css = waybar_dir / "colors.css"
-    if not css.is_file():
-        return False
-    target = _waybar_import_target(css)
-    active = waybar_dir / "colors-active.css"
-    content = f'/* 当前生效的配色入口（由 ZEK-niri 改写）。 */\n@import "{target}";\n'
-    try:
-        if active.read_text(encoding="utf-8") == content:
-            return False
-    except OSError:
-        pass
-    active.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        active.write_text(content, encoding="utf-8")
-    except OSError:
-        return False
-    _reload_waybar()
-    log_msg("INFO", f"Waybar colours -> {target} for {wallpaper}")
-    return True
-
-
 def apply_palette(wallpaper: Optional[str] = None, wait: float = 0.0, force: bool = False) -> bool:
     """Apply the palette mapped to ``wallpaper`` (or noctalia's current one).
 
@@ -129,9 +75,10 @@ def apply_palette(wallpaper: Optional[str] = None, wait: float = 0.0, force: boo
     one is configured; otherwise the current palette is left untouched (there is
     no implicit "first mapping" fallback).
 
-    Only applies while waybar is in preset mode (``style.css`` does not import
-    noctalia's auto-generated colours), keeping preset and Noctalia-auto modes
-    independent; pass ``force`` to override.
+    Only applies while waybar is in preset mode (the stable
+    ``colors-active.css`` entry does not import noctalia's auto-generated
+    colours), keeping preset and Noctalia-auto modes independent; pass
+    ``force`` to override.
 
     When ``wallpaper`` is not given and ``wait > 0``, noctalia's ``wallpaper-*``
     IPC is asynchronous: poll briefly for ``[wallpaper.last].path`` to change
@@ -172,7 +119,6 @@ def apply_palette(wallpaper: Optional[str] = None, wait: float = 0.0, force: boo
 
     print(msg("palette_applied", target.name, name), flush=True)
     log_msg("INFO", f"Applied palette {name} for {target}")
-    apply_waybar_colors(target)
     return True
 
 

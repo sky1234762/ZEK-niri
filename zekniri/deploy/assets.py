@@ -47,6 +47,56 @@ def assets_present() -> bool:
     return src.is_dir() and any(p for p in src.iterdir() if not p.name.startswith("."))
 
 
+def sync_noctalia_wallpaper_dir(destination: Path) -> bool:
+    """Point Noctalia's wallpaper picker at the deployed pack.
+
+    Noctalia browses ``[wallpaper] directory`` from its runtime
+    ``settings.toml`` (a no-clobber state seed), so an existing install keeps
+    browsing the Pictures root while the pack sits one level down. Rewrite the
+    key only when it is empty or still the Pictures root; a user-customised
+    folder is left untouched.
+    """
+    env = get_env()
+    state_file = env.state_home / "noctalia" / "settings.toml"
+    try:
+        lines = state_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return False
+
+    section = ""
+    header_index = -1
+    directory_index = -1
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped
+            if section == "[wallpaper]":
+                header_index = index
+            continue
+        if section != "[wallpaper]":
+            continue
+        key, sep, _value = line.partition("=")
+        if sep and key.strip() == "directory":
+            directory_index = index
+            break
+
+    if directory_index >= 0:
+        current = lines[directory_index].partition("=")[2].strip().strip('"').strip("'")
+        if current:
+            current_path = Path(current).expanduser()
+            if current_path == Path(destination).expanduser() or current_path != get_pics_dir():
+                return False
+        lines[directory_index] = f'directory = "{destination}"\n'
+    elif header_index >= 0:
+        lines.insert(header_index + 1, f'directory = "{destination}"\n')
+    else:
+        return False
+
+    state_file.write_text("".join(lines), encoding="utf-8")
+    log_msg("INFO", f"Updated Noctalia wallpaper directory -> {destination}")
+    return True
+
+
 def deploy_assets() -> AssetDeployResult:
     """No-clobber sync of ``assets/wallpapers/`` into every configured dir."""
     src_root = wallpaper_source()
@@ -70,5 +120,6 @@ def deploy_assets() -> AssetDeployResult:
             shutil.copy2(src, target)
             result.copied += 1
 
+    sync_noctalia_wallpaper_dir(dests[0])
     log_msg("INFO", f"Wallpapers deployed: {result.copied} copied, {result.skipped} kept")
     return result

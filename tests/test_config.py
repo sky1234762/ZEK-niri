@@ -95,25 +95,6 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg.preset_palette, t.home / "p" / "Fallback.json")
             self.assertEqual(cfg.preset_palette_names, ("Fallback", "Other"))
 
-    def test_waybar_colors_mapping(self):
-        with TempEnv() as t:
-            self._write(
-                t,
-                "waybar_colors = ~/wp/a.jpg = ~/wb/a.css\n"
-                "waybar_colors = ~/wp/b.jpg = ~/wb/b.css\n",
-            )
-            config.reload_config()
-            cfg = config.get_config()
-            self.assertEqual(
-                cfg.waybar_colors,
-                (
-                    (t.home / "wp" / "a.jpg", t.home / "wb" / "a.css"),
-                    (t.home / "wp" / "b.jpg", t.home / "wb" / "b.css"),
-                ),
-            )
-            self.assertEqual(cfg.waybar_colors_for(t.home / "wp" / "a.jpg"), t.home / "wb" / "a.css")
-            self.assertIsNone(cfg.waybar_colors_for(Path("/elsewhere/z.jpg")))
-
     def test_user_copy_replaces_repo_list(self):
         with TempEnv() as t:
             (t.home / "ZEK-niri.conf").write_text(

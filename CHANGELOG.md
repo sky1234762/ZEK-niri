@@ -5,6 +5,9 @@ change, natural language, only the net change versus the last release.
 
 ## [1.1.0]
 
+- ZEK-menu now opens with `Ctrl+Middle` only; the right-Shift trigger was removed.
+- Removed the per-wallpaper `waybar_colors` mapping; preset mode now keeps the static `colors.css` (ZEKniri-preset), and `ZEK-niri palette`/the watcher no longer rewrite waybar's `@import`. Existing `waybar_colors` lines in `ZEK-niri.conf` are ignored.
+- The wallpaper pack now also points Noctalia's `[wallpaper] directory` at `<Pictures>/wallpaper` when it was still the Pictures root, so the pack appears directly in Noctalia's wallpaper picker; a custom directory is left untouched.
 - Wallpaper destination detection now reads `$XDG_PICTURES_DIR` (exported env or `~/.config/user-dirs.dirs`) before `xdg-user-dir`/`~/Pictures`, so localised folders like `~/图片` deploy correctly even when `xdg-user-dir` is missing.
 - `ZEK-menu` is now installed with the config package: launcher → `~/.local/bin/ZEK-menu`, Python modules → `~/.local/share/ZEKniri/zekniri/`, sample config → `~/.config/ZEKniri/ZEKniri-menu.conf` (no-clobber). `configs/ZEKniri-menu` declares `deploy = false` so it is not mistaken for a `~/.config` dotfile app.
 - `toggle-colors.sh` now falls back to a direct waybar reload when `noctalia` is not installed, instead of leaving the click with no visible effect.

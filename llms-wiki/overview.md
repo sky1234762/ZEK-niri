@@ -54,4 +54,4 @@ The standalone `ZEK-menu` is a GTK 3 / gtk-layer-shell overlay. The launcher is
 installed to `~/.local/bin/ZEK-menu`, its Python package to
 `~/.local/share/ZEKniri/zekniri/`, and its config to
 `~/.config/ZEKniri/ZEKniri-menu.conf` (seeded once, never overwritten). It does
-not depend on Noctalia and uses `MouseMiddle` and `Shift_R` Niri bindings to open.
+not depend on Noctalia and uses the `Ctrl+MouseMiddle` Niri binding to open.

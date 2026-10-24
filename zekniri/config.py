@@ -40,18 +40,16 @@ _DEFAULTS = {
     "noctalia_scheme_name": "soft",
     "preset_palette": [],
     "wallpaper_palette": [],
-    "waybar_colors": [],
 }
 
 # Repeatable keys: every line is collected instead of overwriting.
-_LIST_KEYS = {"preset_palette", "wallpaper_palette", "waybar_colors"}
+_LIST_KEYS = {"preset_palette", "wallpaper_palette"}
 
 
 @dataclass(frozen=True)
 class Config:
     ask_language_each_start: bool
     wallpaper_palettes: tuple[tuple[Path, Path], ...]
-    waybar_colors: tuple[tuple[Path, Path], ...]
     default_palettes: tuple[Path, ...]
     log_path: Optional[Path]
     noctalia_scheme_source: str
@@ -101,17 +99,6 @@ class Config:
         for wp, palette in self.wallpaper_palettes:
             if wp.name == target.name:
                 return palette
-        return None
-
-    def waybar_colors_for(self, wallpaper: Path) -> Optional[Path]:
-        """Waybar CSS mapped to ``wallpaper`` (exact path first, then basename)."""
-        target = Path(wallpaper)
-        for wp, css in self.waybar_colors:
-            if _same_path(wp, target):
-                return css
-        for wp, css in self.waybar_colors:
-            if wp.name == target.name:
-                return css
         return None
 
 
@@ -221,7 +208,6 @@ def load_config() -> Config:
     return Config(
         ask_language_each_start=_as_bool(raw["ask_language_each_start"]),
         wallpaper_palettes=_as_pairs(pair_lines),
-        waybar_colors=_as_pairs(raw.get("waybar_colors", [])),
         default_palettes=tuple(default_palettes),
         log_path=_as_path(raw["log_path"]),
         noctalia_scheme_source=(raw["noctalia_scheme_source"] or "wallpaper").strip(),

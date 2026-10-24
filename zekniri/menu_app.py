@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 os.environ.setdefault("GDK_BACKEND", "wayland")
@@ -16,7 +17,7 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # type: ignore
 
 from zekniri.menu_instance import release_listener, start_or_toggle
-from zekniri.menu_fullscreen import focused_window_is_fullscreen
+from zekniri.menu_fullscreen import focused_window_is_fullscreen, pointer_over_window
 from zekniri.menu_config import menu_config_path, read_menu_entries
 
 CARD_WIDTH = 320
@@ -74,12 +75,20 @@ class MenuApp:
         _detached([str(path)])
 
     def launch_memo(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
+        try:
+            if path.is_dir():
+                _detached(["xdg-open", str(path)])
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
+        except OSError:
+            return
         if _which("kitty"):
             _detached(["kitty", "nano", str(path)])
         elif _which("alacritty"):
             _detached(["alacritty", "-e", "nano", str(path)])
+        elif _which("xdg-open"):
+            _detached(["xdg-open", str(path)])
 
     def run(self) -> int:
         for surface in self.surfaces:
@@ -111,6 +120,7 @@ class MenuSurface:
         self.width, self.height = geometry.width, geometry.height
         self.positioned = False
         self.cards: list[Gtk.Widget] = []
+        self.card_count = 0
         self.started_at = 0
         self.card_x = self.card_y = 0
         self.origin = (0.0, 0.0)
@@ -185,25 +195,34 @@ class MenuSurface:
 
     def on_card_release(self, _widget, event, callback) -> bool:
         if event.button == 1:
-            callback()
-            self.app.close()
+            try:
+                callback()
+            except Exception as exc:
+                print(f"ZEK-menu: {exc}", file=sys.stderr)
+            finally:
+                self.app.close()
         elif event.button in (2, 3):
             self.app.close()
         return True
 
     def build(self) -> None:
         apps, memo = read_menu_entries(menu_config_path(), Path.home())
-        actions = [(title, lambda path=path: self.app.launch_appimage(path)) for _, title, path in apps]
+        actions = [
+            (index, title, lambda path=path: self.app.launch_appimage(path))
+            for index, title, path in apps
+        ]
         if memo is not None:
-            actions.append(("打开备忘录", lambda path=memo: self.app.launch_memo(path)))
+            next_index = max((index for index, _, _ in apps), default=0) + 1
+            actions.append((next_index, "打开备忘录", lambda path=memo: self.app.launch_memo(path)))
         if not actions:
-            actions.append(("请配置 ZEKniri-menu.conf", lambda: None))
+            actions.append((1, "请配置 ZEKniri-menu.conf", lambda: None))
 
-        for index, (title, callback) in enumerate(actions, 1):
+        self.card_count = len(actions)
+        for index, title, callback in actions:
             card = self._make_card(index, title, callback)
             self.cards.append(card)
             self.fixed.put(card, 0, 0)
-        hint = Gtk.Label(label="中键打开 · Esc 关闭")
+        hint = Gtk.Label(label="Ctrl+中键打开 · Esc 关闭")
         hint.get_style_context().add_class("hint")
         hint.set_opacity(0)
         self.cards.append(hint)
@@ -226,14 +245,11 @@ class MenuSurface:
         return True
 
     def inside_cards(self, x: float, y: float) -> bool:
-        height = len(self.cards) * (CARD_HEIGHT + CARD_GAP) - CARD_GAP
+        height = self.card_count * (CARD_HEIGHT + CARD_GAP) - CARD_GAP
         return self.card_x <= x <= self.card_x + CARD_WIDTH and self.card_y <= y <= self.card_y + height
 
     def on_key(self, _widget, event) -> bool:
-        if event.keyval == Gdk.KEY_Escape or (
-            event.keyval == Gdk.KEY_Shift_R
-            and GLib.get_monotonic_time() // 1000 - self.app.opened_at >= 220
-        ):
+        if event.keyval == Gdk.KEY_Escape:
             self.app.close()
             return True
         return False
@@ -262,7 +278,12 @@ class MenuSurface:
 
 
 def main() -> int:
-    listener = start_or_toggle(allow_start=not focused_window_is_fullscreen())
+    # Ctrl+中键入口做指针命中判断；Esc 关闭。
+    middle_trigger = "--middle" in sys.argv[1:]
+    allow_start = not focused_window_is_fullscreen()
+    if middle_trigger:
+        allow_start = allow_start and not pointer_over_window()
+    listener = start_or_toggle(allow_start=allow_start)
     if listener is None:
         return 0
     try:

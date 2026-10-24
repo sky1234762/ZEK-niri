@@ -89,6 +89,47 @@ class AssetsTest(unittest.TestCase):
             conf.write_text('XDG_PICTURES_DIR="$HOME"\n', encoding="utf-8")
             self.assertEqual(get_pics_dir(), t.home / "Pictures")
 
+    def _seed_noctalia_state(self, t, body: str):
+        state = t.home / ".local" / "state" / "noctalia" / "settings.toml"
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(body, encoding="utf-8")
+        return state
+
+    def test_syncs_noctalia_directory_from_pictures_root(self):
+        from zekniri.core import get_pics_dir
+
+        with TempEnv() as t:
+            self._seed(t)
+            state = self._seed_noctalia_state(
+                t, f'[wallpaper]\ndirectory = "{get_pics_dir()}"\ntransition_on_startup = true\n'
+            )
+            deploy_assets()
+            self.assertIn(
+                f'directory = "{get_pics_dir() / "wallpaper"}"',
+                state.read_text(encoding="utf-8"),
+            )
+
+    def test_keeps_custom_noctalia_directory(self):
+        with TempEnv() as t:
+            self._seed(t)
+            custom = t.home / "MyWallpapers"
+            state = self._seed_noctalia_state(t, f'[wallpaper]\ndirectory = "{custom}"\n')
+            deploy_assets()
+            self.assertIn(f'directory = "{custom}"', state.read_text(encoding="utf-8"))
+
+    def test_inserts_noctalia_directory_when_missing(self):
+        with TempEnv() as t:
+            self._seed(t)
+            state = self._seed_noctalia_state(t, "[wallpaper]\ntransition_on_startup = true\n")
+            deploy_assets()
+            self.assertIn('directory = "', state.read_text(encoding="utf-8"))
+
+    def test_missing_noctalia_state_is_noop(self):
+        with TempEnv() as t:
+            self._seed(t)
+            result = deploy_assets()
+            self.assertEqual(result.copied, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

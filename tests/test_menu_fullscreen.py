@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import patch
 
-from zekniri.menu_fullscreen import _window_is_fullscreen, focused_window_is_fullscreen
+from zekniri.menu_fullscreen import (
+    _window_is_fullscreen,
+    focused_window_is_fullscreen,
+    pointer_over_window,
+)
 
 
 class MenuFullscreenTest(unittest.TestCase):
@@ -22,6 +26,22 @@ class MenuFullscreenTest(unittest.TestCase):
     def test_ipc_failures_do_not_block_menu(self):
         with patch("zekniri.menu_fullscreen.subprocess.run", side_effect=OSError("no IPC")):
             self.assertFalse(focused_window_is_fullscreen())
+
+    def test_pointer_hit_test_blocks_when_window_is_under_cursor(self):
+        payload = '[{"is_under_cursor": true}]'
+        completed = type("Result", (), {"returncode": 0, "stdout": payload})()
+        with patch("zekniri.menu_fullscreen.subprocess.run", return_value=completed):
+            self.assertTrue(pointer_over_window())
+
+    def test_pointer_hit_test_allows_desktop_when_no_window_is_under_cursor(self):
+        payload = '[{"is_under_cursor": false}]'
+        completed = type("Result", (), {"returncode": 0, "stdout": payload})()
+        with patch("zekniri.menu_fullscreen.subprocess.run", return_value=completed):
+            self.assertFalse(pointer_over_window())
+
+    def test_pointer_hit_test_fails_open_when_ipc_is_unavailable(self):
+        with patch("zekniri.menu_fullscreen.subprocess.run", side_effect=OSError("no IPC")):
+            self.assertFalse(pointer_over_window())
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ opt-in `ZEKlive` install option: `ZEK-blv`, `ZEK-danmaku`, and the
 The transparent pointer menu is implemented in `zekniri/menu_app.py`, deployed
 to `~/.local/bin/ZEK-menu` (modules in `~/.local/share/ZEKniri/zekniri/`,
 config seeded to `~/.config/ZEKniri/ZEKniri-menu.conf`), and opens from the
-Niri middle-button binding.
+Niri Ctrl+Middle binding.
 Per-app manifests only declare what is exceptional — see
 [manifest-schema](manifest-schema.md). `niri` and `waybar` use `preserve`/`chmod`;
 the rest use defaults.

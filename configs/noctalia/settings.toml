@@ -292,7 +292,7 @@ source = "custom"
 wallpaper_scheme = "soft"
 
 [wallpaper]
-directory = "/home/zek/图片"
+directory = "/home/zek/图片/wallpaper"
 transition_on_startup = true
 
     [wallpaper.default]

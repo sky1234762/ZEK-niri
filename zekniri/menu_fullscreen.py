@@ -85,3 +85,72 @@ def focused_window_is_fullscreen() -> bool:
         return output is not None and _window_is_fullscreen(window, output)
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return False
+
+def _bool_field(payload: Any, keys: tuple[str, ...]) -> bool | None:
+    """Find an explicit pointer/window state in a Niri JSON payload."""
+    found_false = False
+    if isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if value is True:
+                return True
+            if value is False:
+                found_false = True
+        for value in payload.values():
+            found = _bool_field(value, keys)
+            if found is True:
+                return True
+            found_false = found_false or found is False
+    elif isinstance(payload, list):
+        for value in payload:
+            found = _bool_field(value, keys)
+            if found is True:
+                return True
+            found_false = found_false or found is False
+    return False if found_false else None
+
+
+def pointer_over_window() -> bool:
+    """Return whether Niri reports the pointer over a client window.
+
+    Niri versions that expose the pointer hit-test include one of the
+    ``is_under_cursor``/``under_cursor`` fields in the focused-window or
+    windows JSON. Older versions do not expose this state; in that case the
+    check fails open so the launcher remains usable.
+    """
+    keys = (
+        "is_under_cursor",
+        "under_cursor",
+        "is_under_pointer",
+        "under_pointer",
+        "pointer_over",
+        "is_pointer_over",
+    )
+    try:
+        result = subprocess.run(
+            ["niri", "msg", "--json", "windows"],
+            capture_output=True,
+            text=True,
+            timeout=0.35,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        state = _bool_field(json.loads(result.stdout), keys)
+        if state is not None:
+            return state
+
+        # Some Niri releases only expose the focused window command.
+        result = subprocess.run(
+            ["niri", "msg", "--json", "focused-window"],
+            capture_output=True,
+            text=True,
+            timeout=0.35,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        state = _bool_field(json.loads(result.stdout), keys)
+        return bool(state) if state is not None else False
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return False

@@ -17,7 +17,6 @@ overwritten, so edits there stick. Source: `zekniri/config.py`.
 | `ask_language_each_start` | `false` | prompt for language every launch, not just first run |
 | `preset_palette` | first mapped palette | repeatable: `wallpaper file = palette file` pair, or a bare palette path (global fallback). The wallpaper deploy dir is derived from the paired files |
 | `wallpaper_palette` | `[]` | alias for the pair form of `preset_palette` |
-| `waybar_colors` | `[]` | repeatable `wallpaper file = waybar css` pair; switches waybar's `@import` per wallpaper |
 | `log_path` | empty → `~/.local/state/ZEKniri/install.log` | rolling log destination |
 | `noctalia_scheme_source` | `wallpaper` | noctalia color-picker source used by `toggle-colors.sh` |
 | `noctalia_scheme_name` | `soft` | noctalia scheme name used by `toggle-colors.sh` |
@@ -27,7 +26,6 @@ overwritten, so edits there stick. Source: `zekniri/config.py`.
 - `ask_language_each_start` → `tui.select_language()`
 - `preset_palette` / `wallpaper_palette` → `config.wallpaper_palettes`; derived `wallpaper_dirs` → `deploy/assets.wallpaper_destinations()` (falls back to `get_pics_dir()/wallpaper`)
 - `.palette_for()` → `zekniri/palette.py` (`ZEK-niri palette`, `list_mappings`)
-- `.waybar_colors_for()` → `zekniri/palette.py` (`apply_waybar_colors`, called by `ZEK-niri palette`)
 - `log_path` → `core.init_logger()`
 - `noctalia_scheme_source` / `noctalia_scheme_name` → `configs/waybar/scripts/toggle-colors.sh`, which reads the user copy first (bash defaults when absent)
 
@@ -51,6 +49,11 @@ back to `<Pictures>/wallpaper`, resolved from `$XDG_PICTURES_DIR` →
 localised names like `~/图片` work without `xdg-user-dir`. Multiple wallpaper
 files in a directory are always deployed in full.
 
+After copying, `deploy_assets()` also rewrites Noctalia's `[wallpaper] directory`
+in `~/.local/state/noctalia/settings.toml` when it is empty or still the
+Pictures root, so the pack shows up directly in Noctalia's wallpaper picker. A
+custom folder is left untouched.
+
 `ZEK-niri palette` reads noctalia's current wallpaper (`[wallpaper.last].path`,
 then `default`, then `monitors.*`, from `~/.local/state/noctalia/settings.toml`),
 resolves the paired palette (exact path first, then filename), installs it into
@@ -65,19 +68,13 @@ list` to print the map. An unmapped wallpaper falls back to the bare global
 palette`, with the same `ZEKniri-preset` fallback. Noctalia has no
 wallpaper-change hook, so bind this command to run after switching wallpaper.
 
-## Waybar colours per wallpaper
+## Preset mode colours
 
-`waybar_colors` pairs a wallpaper with a waybar CSS file (repeatable):
-
-    waybar_colors = ~/图片/wallpaper/foo.jpg = ~/.config/waybar/colors/foo.css
-
-When the wallpaper changes, `ZEK-niri palette` (and the watcher) rewrites the
-stable `colors-active.css` entry — the one file `style.css` imports — to point at
-that CSS (relative to `~/.config/waybar/` when possible, otherwise the external
-file is copied to `~/.config/waybar/colors-wallpaper.css`) and reloads waybar. A
-wallpaper without a mapping falls back to `colors.css`. Because `style.css` is
-static and `colors-active.css` is preserved, the chosen mode survives
-`install`/`update`.
+Preset mode always uses the static `colors.css` (the ZEKniri preset); waybar's
+`@import` is switched only between `colors.css` and `colors-noctalia.css` by
+`toggle-colors.sh`. The per-wallpaper `waybar_colors` mapping was removed, so
+`ZEK-niri palette` and the watcher change Noctalia's palette without touching
+waybar's mode.
 
 ## Watcher & waybar
 

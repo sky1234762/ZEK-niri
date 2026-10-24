@@ -39,6 +39,29 @@ class MenuInstanceTest(unittest.TestCase):
             self.assertIsNotNone(server)
             release_listener(server, path)
 
+    def test_release_listener_keeps_replaced_socket(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "menu.sock"
+            try:
+                server = start_or_toggle(path)
+            except PermissionError as exc:
+                self.skipTest(f"sandbox blocks Unix sockets: {exc}")
+            self.assertIsNotNone(server)
+            path.unlink()
+            replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                replacement.bind(str(path))
+            except PermissionError as exc:
+                replacement.close()
+                release_listener(server, path)
+                self.skipTest(f"sandbox blocks Unix sockets: {exc}")
+            try:
+                release_listener(server, path)
+                self.assertTrue(path.exists())
+            finally:
+                replacement.close()
+                path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
