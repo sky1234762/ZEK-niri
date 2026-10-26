@@ -375,9 +375,9 @@
  "custom/actions":{
    "format":"",
    "tooltip-format":"左键：打开 Kitty 终端\n右键：打开 Alacritty 终端",
-   // setsid -f 让终端脱离 waybar 进程组，不会出现waybar重载关闭终端问题
-   "on-click":"setsid -f kitty",
-   "on-click-right":"setsid -f alacritty"
+   // 一个神秘小bug,因为之前终端和wayabr在一个cgroup里，导致waybar寄连带终端一起寄，现在不会了
+   "on-click":"setsid -f systemd-run --user --scope --collect --quiet -- kitty",
+   "on-click-right":"setsid -f systemd-run --user --scope --collect --quiet -- alacritty"
  },
 
  // 配色切换：预设<-> Noctalia取色器
