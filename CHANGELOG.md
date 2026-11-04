@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. One line per user-visible
 change, natural language, only the net change versus the last release.
 
+## [1.1.1a]
+
+- Waybar reloads now fingerprint the active CSS import tree, ignore CSS comments, and coalesce identical requests under one per-user signal lock, with per-config CSS caches. The script honors XDG paths, supports forced reloads and safe suppression, retries after missing Waybar or signal errors, uses monotonic timing, and provides optional debug logs.
+
 ## [1.1.0]
 
 - ZEK-menu now opens with `Ctrl+Middle` only; the right-Shift trigger was removed.

@@ -100,6 +100,10 @@ memo_path = ~/Documents/notes.txt
 
 首次部署会把 `ZEK-menu` 装到 `~/.local/bin/`，Python 模块放到 `~/.local/share/ZEKniri/`，并在 `~/.config/ZEKniri/ZEKniri-menu.conf` 放一份示例配置（已存在则不覆盖）。图形菜单需要 GTK 3、gtk-layer-shell 与 Python GObject；Niri manifest 会声明这些依赖。菜单以透明 overlay 运行，选项从指针右侧逐项滑入，靠近屏幕边缘时自动翻到另一侧。
 
+## Waybar 样式重载
+
+Waybar 的 `scripts/reload-waybar.sh` 会检查 `style.css` 及其递归本地 CSS 导入，只有有效样式变化时才发送重载信号；CSS 注释变化不会触发重载。同一 CSS 状态的并发请求会合并；所有 Waybar 实例共享用户级信号锁，默认重载至少间隔 1000 毫秒，可用 `WAYBAR_RELOAD_GAP_MS` 调整。可用 `WAYBAR_FORCE=1` 强制重载、`WAYBAR_NO_RELOAD=1` 暂停本次信号（不会把新指纹记为已应用）、`WAYBAR_RELOAD_DEBUG=1` 查看诊断信息，也可用 `WAYBAR_CONFIG_DIR`、`XDG_CONFIG_HOME` 和 `XDG_CACHE_HOME` 指定路径。
+
 ## 致谢与主页
 - QQ：`1846318834` QQ(备用): `3456599262` 
 - [bilibili/Zer05ky凌空-ZEK](https://space.bilibili.com/575667990/upload/video) 我的b站主页

@@ -4,7 +4,7 @@
 # 输出：  ~/.config/waybar/colors-noctalia.css   （单独保存，不覆盖预设版）
 #
 # 调色板变化时（切换主题 / 壁纸 / 明暗模式）会自动重新渲染。
-# post_hook 走防抖脚本 reload-waybar.sh，避免多次重载间隔过短把 waybar 撞崩。
+# post_hook 通过 reload-waybar.sh 合并重复请求，并跳过未改变的有效 CSS。
 #
 # Waybar 实际使用哪套配色由 style.css 顶部决定：
 #   @import "colors.css";            -> 预设版
@@ -13,4 +13,4 @@
 [theme.templates.user.waybar]
 input_path  = "$XDG_CONFIG_HOME/noctalia/templates/waybar-colors.css"
 output_path = "$XDG_CONFIG_HOME/waybar/colors-noctalia.css"
-post_hook   = "bash $HOME/.config/waybar/scripts/reload-waybar.sh || true"
+post_hook   = "bash \"${WAYBAR_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/waybar}/scripts/reload-waybar.sh\" || true"

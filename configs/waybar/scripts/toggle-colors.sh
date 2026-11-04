@@ -15,8 +15,9 @@
 #   原因：短时间内两次 SIGUSR2 会让 waybar 在重载未完成时再次重载而崩溃。
 set -euo pipefail
 
-STYLE="${WAYBAR_STYLE:-$HOME/.config/waybar/style.css}"
-ACTIVE_FILE="${WAYBAR_ACTIVE:-$HOME/.config/waybar/colors-active.css}"
+WAYBAR_DIR="${WAYBAR_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/waybar}"
+STYLE="${WAYBAR_STYLE:-$WAYBAR_DIR/style.css}"
+ACTIVE_FILE="${WAYBAR_ACTIVE:-$WAYBAR_DIR/colors-active.css}"
 MANUAL="colors.css"
 NOCTALIA="colors-noctalia.css"
 
@@ -87,8 +88,8 @@ command -v noctalia >/dev/null 2>&1 && HAS_NOCTALIA=1
 
 # 没有 noctalia 时直接重载 waybar，避免“点了没反应”。
 reload_waybar() {
-    if [ -x "$HOME/.config/waybar/scripts/reload-waybar.sh" ]; then
-        bash "$HOME/.config/waybar/scripts/reload-waybar.sh" >/dev/null 2>&1 || true
+    if [ -x "$WAYBAR_DIR/scripts/reload-waybar.sh" ]; then
+        bash "$WAYBAR_DIR/scripts/reload-waybar.sh" >/dev/null 2>&1 || true
     elif command -v waybar >/dev/null 2>&1; then
         pkill -USR2 -x waybar >/dev/null 2>&1 || true
     fi
