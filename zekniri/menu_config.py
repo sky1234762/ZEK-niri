@@ -23,10 +23,10 @@ def expand_config_path(raw: str, home: Path | None = None) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(value)))
 
 
-def read_menu_entries(path: Path, home: Path | None = None) -> tuple[list[tuple[int, str, Path]], Path | None]:
-    """Return indexed appimage entries and the optional memo path."""
+def read_menu_entries(path: Path, home: Path | None = None) -> tuple[list[tuple[int, str, Path]], list[Path]]:
+    """Return indexed appimage entries and memo/text paths in file order."""
     apps: list[tuple[int, str, Path]] = []
-    memo: Path | None = None
+    memos: list[Path] = []
     app_index = 0
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -44,6 +44,6 @@ def read_menu_entries(path: Path, home: Path | None = None) -> tuple[list[tuple[
                 continue
             app = expand_config_path(value, home)
             apps.append((app_index, app.name or str(app), app))
-        elif key == "memo_path" and value and memo is None:
-            memo = expand_config_path(value, home)
-    return apps, memo
+        elif key == "memo_path" and value:
+            memos.append(expand_config_path(value, home))
+    return apps, memos

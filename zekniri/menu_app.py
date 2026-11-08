@@ -206,14 +206,16 @@ class MenuSurface:
         return True
 
     def build(self) -> None:
-        apps, memo = read_menu_entries(menu_config_path(), Path.home())
+        apps, memos = read_menu_entries(menu_config_path(), Path.home())
         actions = [
             (index, title, lambda path=path: self.app.launch_appimage(path))
             for index, title, path in apps
         ]
-        if memo is not None:
-            next_index = max((index for index, _, _ in apps), default=0) + 1
-            actions.append((next_index, "打开备忘录", lambda path=memo: self.app.launch_memo(path)))
+        next_index = max((index for index, _, _ in apps), default=0) + 1
+        for memo in memos:
+            label = f"打开 {memo.name or memo}"
+            actions.append((next_index, label, lambda path=memo: self.app.launch_memo(path)))
+            next_index += 1
         if not actions:
             actions.append((1, "请配置 ZEKniri-menu.conf", lambda: None))
 

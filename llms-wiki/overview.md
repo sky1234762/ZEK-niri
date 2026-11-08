@@ -55,3 +55,5 @@ installed to `~/.local/bin/ZEK-menu`, its Python package to
 `~/.local/share/ZEKniri/zekniri/`, and its config to
 `~/.config/ZEKniri/ZEKniri-menu.conf` (seeded once, never overwritten). It does
 not depend on Noctalia and uses the `Ctrl+MouseMiddle` Niri binding to open.
+`memo_path` is repeatable; each entry renders as `打开 <filename>` (text files
+open in the terminal editor, directories via `xdg-open`).

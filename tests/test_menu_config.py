@@ -17,10 +17,28 @@ class MenuConfigTest(unittest.TestCase):
                 "memo_path = ~/Notes/notes.txt\n",
                 encoding="utf-8",
             )
-            apps, memo = read_menu_entries(conf, root)
+            apps, memos = read_menu_entries(conf, root)
             self.assertEqual([i for i, _, _ in apps], [1, 3])
             self.assertEqual([p for _, _, p in apps], [root / "Apps/First.AppImage", root / "Apps/Second App.AppImage"])
-            self.assertEqual(memo, root / "Notes/notes.txt")
+            self.assertEqual(memos, [root / "Notes/notes.txt"])
+
+    def test_reads_multiple_memo_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            conf = root / "menu.conf"
+            conf.write_text(
+                "memo_path = ~/Notes/one.txt\n"
+                "memo_path =\n"
+                "memo_path = ~/Notes/two.md\n"
+                "memo_path = ~/Notes\n",
+                encoding="utf-8",
+            )
+            apps, memos = read_menu_entries(conf, root)
+            self.assertEqual(apps, [])
+            self.assertEqual(
+                memos,
+                [root / "Notes/one.txt", root / "Notes/two.md", root / "Notes"],
+            )
 
     def test_user_config_path_uses_xdg_location(self):
         home = Path("/home/example")

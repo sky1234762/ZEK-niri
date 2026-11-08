@@ -25,7 +25,7 @@
 - **可自定义配置文件** — 配置文件现已加入，你可以自己决定使用哪个取色器让你的桌面更好看。当然，你还可以把日志输出路径改到更显眼的位置，方便定位程序问题
 - **多款预设与壁纸** — 暂时移除此功能，待后续调试和修复后有概率回归，但取色器模式依旧正常运行
 - **直播工具加入** — 现已加入并集成我常用的直播工具，具体使用方法看[ZEK-blv](https://github.com/sky1234762/ZEK-blv)
-- **独立 ZEKniri 菜单** — 有很多appimage文件但是每次打开文件管理器很麻烦？不用担心，按下 Ctrl和你的鼠标中键！
+- **独立 ZEKniri 菜单** — 有很多appimage文件但是每次打开文件管理器很麻烦？不用担心，按下 Ctrl和你的鼠标中键！（现已支持文本文件多路径）
 
 ## 配置结构
 
@@ -90,19 +90,17 @@ ZEK-niri test                      沙箱部署（开发者）
 ```
 ## 关于附加菜单
 
-AppImage 与备忘录路径配置在 `~/.config/ZEKniri/ZEKniri-menu.conf`：
+![附加菜单预览](preview/ZEKmenu.png)
+
+AppImage与文本文件路径配置在 `~/.config/ZEKniri/ZEKniri-menu.conf`（现已支持多文件多路径输入）：
 
 ```ini
 appimage_path = ~/Applications/example.AppImage
-appimage_path = "/home/zek/Applications/Another App.AppImage"
+appimage_path = "/home/zek/Applications/test.AppImage"
 memo_path = ~/Documents/notes.txt
+memo_path = ~/Documents/todo.md
+memo_path = ~/Documents
 ```
-
-首次部署会把 `ZEK-menu` 装到 `~/.local/bin/`，Python 模块放到 `~/.local/share/ZEKniri/`，并在 `~/.config/ZEKniri/ZEKniri-menu.conf` 放一份示例配置（已存在则不覆盖）。图形菜单需要 GTK 3、gtk-layer-shell 与 Python GObject；Niri manifest 会声明这些依赖。菜单以透明 overlay 运行，选项从指针右侧逐项滑入，靠近屏幕边缘时自动翻到另一侧。
-
-## Waybar 样式重载
-
-Waybar 的 `scripts/reload-waybar.sh` 会检查 `style.css` 及其递归本地 CSS 导入，只有有效样式变化时才发送重载信号；CSS 注释变化不会触发重载。同一 CSS 状态的并发请求会合并；所有 Waybar 实例共享用户级信号锁，默认重载至少间隔 1000 毫秒，可用 `WAYBAR_RELOAD_GAP_MS` 调整。可用 `WAYBAR_FORCE=1` 强制重载、`WAYBAR_NO_RELOAD=1` 暂停本次信号（不会把新指纹记为已应用）、`WAYBAR_RELOAD_DEBUG=1` 查看诊断信息，也可用 `WAYBAR_CONFIG_DIR`、`XDG_CONFIG_HOME` 和 `XDG_CACHE_HOME` 指定路径。
 
 ## 致谢与主页
 - QQ：`1846318834` QQ(备用): `3456599262` 

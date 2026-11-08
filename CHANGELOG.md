@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. One line per user-visible
 change, natural language, only the net change versus the last release.
 
+## [Unreleased]
+
+- ZEK-menu: `memo_path` is now repeatable; each entry renders as "打开 <filename>" and opens text files in the terminal editor (directories via `xdg-open`).
+
 ## [1.1.1a]
 
 - Waybar reloads now fingerprint the active CSS import tree, ignore CSS comments, and coalesce identical requests under one per-user signal lock, with per-config CSS caches. The script honors XDG paths, supports forced reloads and safe suppression, retries after missing Waybar or signal errors, uses monotonic timing, and provides optional debug logs.
