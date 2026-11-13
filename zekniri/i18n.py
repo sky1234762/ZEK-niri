@@ -169,6 +169,7 @@ TRANSLATIONS = {
         "install_step_configs": "Deploying configs…",
         "install_step_assets": "Deploying wallpapers…",
         "install_step_zeklive": "Installing ZEKlive…",
+        "install_step_waybar_service": "Enabling Waybar autostart…",
         "copying_configs": "Deploying configs…",
         "copy_done": "Configs deployed.",
         # deploy logs
@@ -365,6 +366,7 @@ TRANSLATIONS = {
         "install_step_configs": "正在部署配置…",
         "install_step_assets": "正在部署壁纸…",
         "install_step_zeklive": "正在安装 ZEKlive…",
+        "install_step_waybar_service": "正在设置 Waybar 自启…",
         "copying_configs": "正在部署配置…",
         "copy_done": "配置已部署。",
         "log_deploy_config_item": "[✓] 已部署 {0}",

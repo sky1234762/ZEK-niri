@@ -5,6 +5,8 @@ change, natural language, only the net change versus the last release.
 
 ## [Unreleased]
 
+- Install flow enables and starts the systemd user `waybar.service` for the Waybar component.
+- Noctalia's native bar sections (`[bar.*] enabled`) are forced off in an existing `~/.local/state/noctalia/settings.toml` with a targeted merge; other settings are preserved.
 - ZEK-menu: `memo_path` is now repeatable; each entry renders as "打开 <filename>" and opens text files in the terminal editor (directories via `xdg-open`).
 
 ## [1.1.1a]

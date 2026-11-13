@@ -30,6 +30,7 @@ from zekniri.deploy import (
     deploy_selected_configs,
     deploy_zeklive,
     discover_config_items,
+    enable_waybar_service,
     render_completion_screen,
     test_deploy,
     zeklive_present,
@@ -144,6 +145,10 @@ def install_configs_workflow(mode: str = "full") -> bool:
         if failed:
             render_completion_screen(mode=mode, chosen_items=chosen_configs, preserved_lines=preserved, failed_items=failed)
             return False
+
+    if "waybar" in chosen_configs:
+        print(msg("install_step_waybar_service"))
+        enable_waybar_service()
 
     asset_result = None
     if do_assets:

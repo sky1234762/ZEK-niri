@@ -19,6 +19,7 @@ from zekniri.tui import read_key, show_logo, raw_input_mode, _drain_pending, ent
 from zekniri.deploy.atomic import atomic_replace_item
 from zekniri.deploy.assets import AssetDeployResult, assets_present, deploy_assets
 from zekniri.deploy.tools import ToolDeployResult, deploy_menu
+from zekniri.deploy.noctalia import disable_native_bar
 from zekniri.deploy.manifest import discover_deployable_apps, load_manifest
 from zekniri.deploy.templates import _phase_render_templates
 
@@ -167,6 +168,8 @@ def deploy_selected_configs(
     if failed_items:
         print(msg("deploy_failed", ", ".join(failed_items)), file=sys.stderr)
         return failed_items
+    if "noctalia" in items_to_deploy:
+        disable_native_bar()
     deploy_menu()
     _phase_render_templates()
     print(msg("copy_done"))

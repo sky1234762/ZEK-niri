@@ -1,7 +1,7 @@
 import unittest
 
 from tests.utils import TempEnv
-from zekniri.deploy.tools import deploy_zeklive, zeklive_present
+from zekniri.deploy.tools import deploy_zeklive, enable_waybar_service, zeklive_present
 
 
 class ToolsTest(unittest.TestCase):
@@ -32,6 +32,10 @@ class ToolsTest(unittest.TestCase):
             self.assertFalse(zeklive_present())
             result = deploy_zeklive()
             self.assertEqual(result.copied, 0)
+
+    def test_enable_waybar_service_skips_in_temp_tree(self):
+        with TempEnv():
+            self.assertFalse(enable_waybar_service())
 
 
 if __name__ == "__main__":

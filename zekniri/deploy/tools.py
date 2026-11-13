@@ -8,6 +8,7 @@ dependency script. Each tool is a separate, opt-in install option.
 
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -94,6 +95,40 @@ def deploy_menu() -> ToolDeployResult:
 
     log_msg("INFO", f"ZEK-menu deployed: {result.copied} file(s) -> {bin_dir}")
     return result
+
+
+def enable_waybar_service() -> bool:
+    """Enable the distro Waybar user service and start it when not running."""
+    env = get_env()
+    if shutil.which("systemctl") is None:
+        log_msg("INFO", "systemctl not found; skipping waybar.service")
+        return False
+    if not (env.repo_dir / "install.sh").is_file():
+        return False  # test/temp tree: never touch the real user manager
+
+    subprocess.run(
+        ["systemctl", "--user", "enable", "waybar.service"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    running = False
+    if shutil.which("pgrep"):
+        running = subprocess.run(
+            ["pgrep", "-x", "waybar"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+    if not running:
+        subprocess.run(
+            ["systemctl", "--user", "start", "waybar.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    log_msg("INFO", f"waybar.service enabled; running={running}")
+    return True
 
 
 def deploy_zeklive() -> ToolDeployResult:

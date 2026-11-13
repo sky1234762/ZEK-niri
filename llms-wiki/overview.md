@@ -37,6 +37,8 @@ the toml. `discover_manifest_apps()` merges both.
 
 - **install** — atomic reconcile from repo → `~/.config`, then imperative
   side-effects (placeholder render, assets). `install full` also checks deps.
+  Install also enables `waybar.service` (systemd user) and forces Noctalia's
+  native `[bar.*] enabled` settings off in an existing runtime `settings.toml`.
 - **update** — refresh the repo (`git pull`), then re-exec and deploy on the new
   code. Presets, if any, live in the repo, so a pull updates their source too.
 

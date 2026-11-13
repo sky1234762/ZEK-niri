@@ -78,7 +78,7 @@ engine_is_complete() {
     for module in __init__ __main__ cli constants core deps doctor i18n menu_app menu_config menu_fullscreen menu_instance network tui; do
         [ -f "$target_dir/zekniri/$module.py" ] || return 1
     done
-    for module in __init__ atomic assets deploy manifest templates; do
+    for module in __init__ atomic assets deploy manifest noctalia templates; do
         [ -f "$target_dir/zekniri/deploy/$module.py" ] || return 1
     done
     for module in __init__ backup uninstall; do
