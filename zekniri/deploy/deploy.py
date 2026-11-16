@@ -5,8 +5,10 @@ Coordinates the deploy siblings: atomic (swap + preserve), manifest (app
 discovery), templates (placeholder render), assets (static files).
 """
 
+import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -225,6 +227,8 @@ def render_completion_screen(
         sys.stdout.write(Colors.CLEAR_SCREEN)
         show_logo()
         _render_body()
+        if mode == "test":
+            sys.stdout.write(f"\n  {Colors.DIM}{msg('summary_test_note')}{Colors.RESET}\n")
         sys.stdout.write(f"\n  {Colors.BOLD_WHITE}{msg('summary_section_next')}{Colors.RESET}\n")
         sys.stdout.write(f"    {msg('summary_next_start')}\n")
         sys.stdout.write(f"    {msg('summary_next_command', CLI_CMD)}\n")
@@ -253,22 +257,73 @@ def render_completion_screen(
 
 
 def test_deploy() -> bool:
-    """Developer test command: fast idempotent re-deploy in the current env."""
-    print(msg("test_start"))
+    """Developer test command: deploy into a throwaway HOME sandbox."""
+    import zekniri.config as config_mod
+    import zekniri.core as core
+    from zekniri.deploy import manifest as manifest_mod
 
-    preserved_log: List[str] = []
-    items = discover_config_items()
-    failed_items = _phase_atomic_deployment(items, preserved_log=preserved_log, test_mode=True)
-    if failed_items:
-        print(msg("deploy_failed", ", ".join(failed_items)), file=sys.stderr)
-        render_completion_screen(mode="test", chosen_items=items, preserved_lines=preserved_log, failed_items=failed_items)
-        return False
-    _phase_render_templates()
-    asset_result = deploy_assets()
-    render_completion_screen(
-        mode="test",
-        chosen_items=items,
-        preserved_lines=preserved_log,
-        asset_result=asset_result,
-    )
-    return True
+    global _CONFIG_ITEMS_CACHE
+
+    print(msg("test_start"))
+    old_env = {
+        key: os.environ.get(key)
+        for key in (
+            "HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_DATA_HOME",
+            "ZEKNIRI_SANDBOX",
+        )
+    }
+    old_items_cache = _CONFIG_ITEMS_CACHE
+
+    with tempfile.TemporaryDirectory(prefix="zekniri-test-") as temp:
+        home = Path(temp)
+        for sub in (".config", ".local/state/ZEKniri", ".local/share", ".cache", ".local/bin"):
+            (home / sub).mkdir(parents=True, exist_ok=True)
+        os.environ.update(
+            {
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "XDG_CACHE_HOME": str(home / ".cache"),
+                "XDG_DATA_HOME": str(home / ".local" / "share"),
+                "ZEKNIRI_SANDBOX": "1",
+            }
+        )
+        core._ENV = None
+        core._PICS_DIR_CACHE = None
+        config_mod._CONFIG = None
+        manifest_mod._MANIFEST_CACHE = None
+        _CONFIG_ITEMS_CACHE = []
+
+        try:
+            print(msg("test_sandbox_path", str(home)), flush=True)
+            preserved_log: List[str] = []
+            items = discover_config_items()
+            failed_items = _phase_atomic_deployment(items, preserved_log=preserved_log, test_mode=True)
+            if failed_items:
+                print(msg("deploy_failed", ", ".join(failed_items)), file=sys.stderr)
+                render_completion_screen(mode="test", chosen_items=items, preserved_lines=preserved_log, failed_items=failed_items)
+                return False
+            _phase_render_templates()
+            asset_result = deploy_assets()
+            render_completion_screen(
+                mode="test",
+                chosen_items=items,
+                preserved_lines=preserved_log,
+                asset_result=asset_result,
+            )
+            return True
+        finally:
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            core._ENV = None
+            core._PICS_DIR_CACHE = None
+            config_mod._CONFIG = None
+            manifest_mod._MANIFEST_CACHE = None
+            _CONFIG_ITEMS_CACHE = old_items_cache

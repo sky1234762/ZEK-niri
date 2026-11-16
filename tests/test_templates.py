@@ -1,7 +1,13 @@
 import unittest
+from pathlib import Path
 
 from tests.utils import TempEnv
-from zekniri.deploy.templates import _phase_render_templates, _render_file, PLACEHOLDER
+from zekniri.deploy.templates import (
+    FONT_SIZE_MARKER,
+    PLACEHOLDER,
+    _phase_render_templates,
+    _render_file,
+)
 
 
 class TemplatesTest(unittest.TestCase):
@@ -34,6 +40,30 @@ class TemplatesTest(unittest.TestCase):
             _phase_render_templates(only_app="a")
             self.assertNotIn(PLACEHOLDER, (a / "c").read_text(encoding="utf-8"))
             self.assertIn(PLACEHOLDER, (b / "c").read_text(encoding="utf-8"))
+
+    def test_font_size_marker_rendered_from_config(self):
+        with TempEnv() as t:
+            (t.home / "ZEK-niri.conf").write_text("font_size = 15px\n", encoding="utf-8")
+            import zekniri.config as config
+            config.reload_config()
+            app = t.home / ".config" / "waybar"
+            app.mkdir(parents=True)
+            style = app / "style.css"
+            style.write_text(
+                "* {\n    font-size: 13.0px; /* ZEKniri: base font size */\n}\n",
+                encoding="utf-8",
+            )
+            _phase_render_templates(only_app="waybar")
+            text = style.read_text(encoding="utf-8")
+            self.assertIn("font-size: 15px; /* ZEKniri: base font size */", text)
+
+    def test_waybar_style_ships_valid_font_size_marker(self):
+        root = Path(__file__).resolve().parents[1]
+        style = root / "configs" / "waybar" / "style.css"
+        text = style.read_text(encoding="utf-8")
+        self.assertIn(FONT_SIZE_MARKER, text)
+        self.assertIn("font-size: 13.0px;", text)
+        self.assertNotIn("__ZEKNIRI_FONT_SIZE__", text)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,7 @@ from zekniri.deps import (
 from zekniri.doctor import generate_bug_report, run_doctor, show_logs
 from zekniri.i18n import msg
 from zekniri.network import safe_git_pull
+from zekniri.outputs import choose_and_write_output_modes
 from zekniri.palette import apply_palette, install_watcher, list_mappings, remove_watcher, watch
 from zekniri.state import (
     backup_configs,
@@ -150,6 +151,10 @@ def install_configs_workflow(mode: str = "full") -> bool:
         print(msg("install_step_waybar_service"))
         enable_waybar_service()
 
+    if ("waybar" in chosen_configs or "noctalia" in chosen_configs) and (get_env().repo_dir / "install.sh").is_file():
+        print(msg("install_step_watch_service"))
+        install_watcher()
+
     asset_result = None
     if do_assets:
         print(msg("install_step_assets"))
@@ -159,6 +164,9 @@ def install_configs_workflow(mode: str = "full") -> bool:
     if do_zeklive:
         print(msg("install_step_zeklive"))
         tool_result = deploy_zeklive()
+
+    if "niri" in chosen_configs and sys.stdin.isatty():
+        choose_and_write_output_modes()
 
     render_completion_screen(
         mode=mode,
@@ -345,6 +353,7 @@ def show_config() -> None:
         ("preset_palette_name", ", ".join(cfg.preset_palette_names)),
         ("wallpaper_palette", ", ".join(f"{w.name}->{p.stem}" for w, p in cfg.wallpaper_palettes) if cfg.wallpaper_palettes else "(none)"),
         ("log_path", str(cfg.log_path) if cfg.log_path else str(env.state_dir / "install.log")),
+        ("font_size", cfg.font_size),
         ("noctalia_scheme_source", cfg.noctalia_scheme_source),
         ("noctalia_scheme_name", cfg.noctalia_scheme_name),
     ]

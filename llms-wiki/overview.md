@@ -39,6 +39,9 @@ the toml. `discover_manifest_apps()` merges both.
   side-effects (placeholder render, assets). `install full` also checks deps.
   Install also enables `waybar.service` (systemd user) and forces Noctalia's
   native `[bar.*] enabled` settings off in an existing runtime `settings.toml`.
+  It also installs and restarts `zekniri-watch.service` for palette/font hot reload.
+  After deployment it shows a TUI selector with every supported resolution/refresh
+  combination per Niri output and writes the chosen modes to `~/.config/niri/config.kdl`.
 - **update** — refresh the repo (`git pull`), then re-exec and deploy on the new
   code. Presets, if any, live in the repo, so a pull updates their source too.
 

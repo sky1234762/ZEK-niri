@@ -23,6 +23,7 @@ class ConfigTest(unittest.TestCase):
             self.assertIsNone(cfg.log_path)
             self.assertEqual(cfg.noctalia_scheme_source, "wallpaper")
             self.assertEqual(cfg.noctalia_scheme_name, "soft")
+            self.assertEqual(cfg.font_size, "13.0px")
             self.assertEqual(cfg.preset_palette.parent, t.home / ".config" / "noctalia" / "palettes")
             self.assertEqual(cfg.preset_palette_name, "ZEKniri-preset")
 
@@ -94,6 +95,18 @@ class ConfigTest(unittest.TestCase):
             )
             self.assertEqual(cfg.preset_palette, t.home / "p" / "Fallback.json")
             self.assertEqual(cfg.preset_palette_names, ("Fallback", "Other"))
+
+    def test_font_size_parsing(self):
+        with TempEnv() as t:
+            self._write(t, "font_size = 15.5px\n")
+            config.reload_config()
+            self.assertEqual(config.get_config().font_size, "15.5px")
+            self._write(t, "font_size = 14\n")
+            config.reload_config()
+            self.assertEqual(config.get_config().font_size, "14px")
+            self._write(t, "font_size = 14; color: red\n")
+            config.reload_config()
+            self.assertEqual(config.get_config().font_size, "13.0px")
 
     def test_user_copy_replaces_repo_list(self):
         with TempEnv() as t:

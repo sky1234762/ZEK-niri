@@ -2,15 +2,14 @@
 @import "colors-active.css";
 
 /* 核心逻辑：全相对单位 (em) 改造
-   基准字体大小：14.5px
-   如果需要整体放大缩小，只需修改下方的 14.5px 即可
+   基准字体大小由 ZEK-niri.conf 的 font_size 控制（默认 13.0px）
 */
 * {
     border: none;
     border-radius: 0;
     font-family: "JetBrainsMono Nerd Font Propo","LXGW WenKai Screen","JetBrains Maple Mono","Font Awesome 7 Free";
     /* font-family:"0xProto Nerd Font Propo"; */
-    font-size: 13.0px; /* 基准大小 */
+    font-size: 13.0px; /* ZEKniri: base font size */
     opacity: 1;
 }
 

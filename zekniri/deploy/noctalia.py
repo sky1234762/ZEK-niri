@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 
@@ -70,7 +71,7 @@ def disable_native_bar() -> bool:
 
     # Apply immediately when Noctalia is running. Skip test/temp trees so unit
     # tests never poke the real session.
-    if (env.repo_dir / "install.sh").is_file() and shutil.which("noctalia"):
+    if not os.environ.get("ZEKNIRI_SANDBOX") and (env.repo_dir / "install.sh").is_file() and shutil.which("noctalia"):
         subprocess.run(
             ["noctalia", "msg", "config-reload"],
             check=False,

@@ -5,6 +5,10 @@ change, natural language, only the net change versus the last release.
 
 ## [Unreleased]
 
+- `ZEK-niri test` now runs in a temporary HOME sandbox: it no longer writes to the real `~/.config`, Pictures directory, or Noctalia state, prints the sandbox path, and cleans it up on exit.
+- After config deployment, the installer shows a TUI selector with every supported resolution/refresh combination per Niri output and writes the chosen modes to `~/.config/niri/config.kdl`.
+- Install flow now installs and restarts `zekniri-watch.service` (wallpaper palette + Waybar font hot reload) automatically when Waybar/Noctalia is selected.
+- New `font_size` in `ZEK-niri.conf` controls the base Waybar CSS font size; the marked base `font-size` line in `style.css` is rendered at deploy time, and `ZEK-niri watch` hot-reloads it when the config changes (no reinstall).
 - Install flow enables and starts the systemd user `waybar.service` for the Waybar component.
 - Noctalia's native bar sections (`[bar.*] enabled`) are forced off in an existing `~/.local/state/noctalia/settings.toml` with a targeted merge; other settings are preserved.
 - ZEK-menu: `memo_path` is now repeatable; each entry renders as "打开 <filename>" and opens text files in the terminal editor (directories via `xdg-open`).

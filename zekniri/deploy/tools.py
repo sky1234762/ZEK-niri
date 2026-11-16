@@ -100,6 +100,8 @@ def deploy_menu() -> ToolDeployResult:
 def enable_waybar_service() -> bool:
     """Enable the distro Waybar user service and start it when not running."""
     env = get_env()
+    if os.environ.get("ZEKNIRI_SANDBOX"):
+        return False
     if shutil.which("systemctl") is None:
         log_msg("INFO", "systemctl not found; skipping waybar.service")
         return False

@@ -21,6 +21,7 @@ This tunes engine behaviour only. Per-app configuration still lives under
 """
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,7 @@ _TRUE = {"1", "true", "yes", "on"}
 _DEFAULTS = {
     "ask_language_each_start": "false",
     "log_path": "",
+    "font_size": "13.0px",
     "noctalia_scheme_source": "wallpaper",
     "noctalia_scheme_name": "soft",
     "preset_palette": [],
@@ -52,6 +54,7 @@ class Config:
     wallpaper_palettes: tuple[tuple[Path, Path], ...]
     default_palettes: tuple[Path, ...]
     log_path: Optional[Path]
+    font_size: str
     noctalia_scheme_source: str
     noctalia_scheme_name: str
 
@@ -113,6 +116,20 @@ def default_preset_palette() -> Path:
 
 def _as_bool(value: str) -> bool:
     return (value or "").strip().lower() in _TRUE
+
+
+_FONT_SIZE_RE = re.compile(r"^\d+(?:\.\d+)?(?:px|pt|em|rem|%)?$")
+_DEFAULT_FONT_SIZE = "13.0px"
+
+
+def _as_font_size(value: str) -> str:
+    """Validate a CSS font-size; bare numbers get ``px``."""
+    text = (value or "").strip()
+    if not _FONT_SIZE_RE.match(text):
+        return _DEFAULT_FONT_SIZE
+    if text[-1].isdigit() or text[-1] == ".":
+        return text + "px"
+    return text
 
 
 def _as_path(value: str) -> Optional[Path]:
@@ -210,6 +227,7 @@ def load_config() -> Config:
         wallpaper_palettes=_as_pairs(pair_lines),
         default_palettes=tuple(default_palettes),
         log_path=_as_path(raw["log_path"]),
+        font_size=_as_font_size(raw.get("font_size", "")),
         noctalia_scheme_source=(raw["noctalia_scheme_source"] or "wallpaper").strip(),
         noctalia_scheme_name=(raw["noctalia_scheme_name"] or "soft").strip(),
     )

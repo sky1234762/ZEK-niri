@@ -18,6 +18,7 @@ overwritten, so edits there stick. Source: `zekniri/config.py`.
 | `preset_palette` | first mapped palette | repeatable: `wallpaper file = palette file` pair, or a bare palette path (global fallback). The wallpaper deploy dir is derived from the paired files |
 | `wallpaper_palette` | `[]` | alias for the pair form of `preset_palette` |
 | `log_path` | empty → `~/.local/state/ZEKniri/install.log` | rolling log destination |
+| `font_size` | `13.0px` | base Waybar CSS font size; other sizes are `em` and scale with it |
 | `noctalia_scheme_source` | `wallpaper` | noctalia color-picker source used by `toggle-colors.sh` |
 | `noctalia_scheme_name` | `soft` | noctalia scheme name used by `toggle-colors.sh` |
 
@@ -27,6 +28,7 @@ overwritten, so edits there stick. Source: `zekniri/config.py`.
 - `preset_palette` / `wallpaper_palette` → `config.wallpaper_palettes`; derived `wallpaper_dirs` → `deploy/assets.wallpaper_destinations()` (falls back to `get_pics_dir()/wallpaper`)
 - `.palette_for()` → `zekniri/palette.py` (`ZEK-niri palette`, `list_mappings`)
 - `log_path` → `core.init_logger()`
+- `font_size` → the marked base `font-size` line in `configs/waybar/style.css` at deploy time (default `13.0px`); `ZEK-niri watch` also rewrites it and reloads Waybar when the config changes
 - `noctalia_scheme_source` / `noctalia_scheme_name` → `configs/waybar/scripts/toggle-colors.sh`, which reads the user copy first (bash defaults when absent)
 
 `ZEK-niri show-config` prints the resolved values with paths already expanded.

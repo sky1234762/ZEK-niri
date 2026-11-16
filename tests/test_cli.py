@@ -43,6 +43,17 @@ class CliTest(unittest.TestCase):
                 chosen = cli.run_master_component_menu("config")
             self.assertTrue(chosen["assets"])
 
+    def test_install_config_installs_watcher_for_waybar(self):
+        with TempEnv() as t:
+            (t.home / "install.sh").write_text("", encoding="utf-8")
+            app = t.home / "configs" / "waybar"
+            app.mkdir()
+            (app / "conf").write_text("x", encoding="utf-8")
+            with mock.patch("zekniri.cli.enable_waybar_service"), \
+                    mock.patch("zekniri.cli.install_watcher") as install:
+                self.assertTrue(cli.install_configs_workflow("config"))
+                install.assert_called_once()
+
     def test_commands_dict_shape(self):
         for name, (handler, usage) in cli.COMMANDS.items():
             self.assertTrue(callable(handler), name)

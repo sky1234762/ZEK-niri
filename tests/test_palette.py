@@ -1,3 +1,5 @@
+import os
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -146,6 +148,35 @@ class PaletteTest(unittest.TestCase):
                 self.assertTrue(palette.apply_palette(wait=1.0))
                 self.assertEqual(run.call_args[0][0][-1], "b")
 
+    def test_watch_hot_reloads_font_size(self):
+        with TempEnv() as t:
+            (t.home / "ZEK-niri.conf").write_text("font_size = 13.0px\n", encoding="utf-8")
+            style = t.home / ".config" / "waybar" / "style.css"
+            style.parent.mkdir(parents=True, exist_ok=True)
+            style.write_text("* {\n    font-size: 13.0px; /* ZEKniri: base font size */\n}\n", encoding="utf-8")
+
+            calls = {"n": 0}
+
+            def fake_sleep(_seconds):
+                if calls["n"] == 0:
+                    calls["n"] += 1
+                    conf = t.home / "ZEK-niri.conf"
+                    conf.write_text("font_size = 15px\n", encoding="utf-8")
+                    future = time.time() + 10
+                    os.utime(conf, (future, future))
+                else:
+                    raise KeyboardInterrupt
+
+            with mock.patch("zekniri.palette.current_wallpaper", return_value=None), \
+                    mock.patch("zekniri.palette._reload_waybar") as reload_, \
+                    mock.patch("zekniri.palette.time.sleep", side_effect=fake_sleep):
+                self.assertEqual(palette.watch(0.01), 0)
+                reload_.assert_called_once()
+            self.assertIn(
+                "font-size: 15px; /* ZEKniri: base font size */",
+                style.read_text(encoding="utf-8"),
+            )
+
     def test_watch_lock_prevents_second(self):
         import fcntl
 
@@ -194,6 +225,52 @@ class PaletteTest(unittest.TestCase):
                 run.return_value = mock.Mock(returncode=0)
                 self.assertTrue(palette.apply_palette(str(t.home / "wp" / "a.jpg")))
             self.assertEqual(active.read_text(encoding="utf-8"), '@import "colors.css";')
+
+    def test_apply_font_size_updates_marked_line(self):
+        with TempEnv() as t:
+            style = t.home / ".config" / "waybar" / "style.css"
+            style.parent.mkdir(parents=True, exist_ok=True)
+            style.write_text(
+                "* {\n    font-size: 13.0px; /* ZEKniri: base font size */\n}\n",
+                encoding="utf-8",
+            )
+            with mock.patch("zekniri.palette._reload_waybar") as reload_:
+                self.assertTrue(palette.apply_font_size("15px"))
+                reload_.assert_called_once()
+            self.assertIn(
+                "font-size: 15px; /* ZEKniri: base font size */",
+                style.read_text(encoding="utf-8"),
+            )
+
+    def test_apply_font_size_migrates_old_style(self):
+        with TempEnv() as t:
+            style = t.home / ".config" / "waybar" / "style.css"
+            style.parent.mkdir(parents=True, exist_ok=True)
+            style.write_text(
+                "* {\n    font-size: 13.0px; /* 基准大小 */\n}\n",
+                encoding="utf-8",
+            )
+            with mock.patch("zekniri.palette._reload_waybar"):
+                self.assertTrue(palette.apply_font_size("16px"))
+            text = style.read_text(encoding="utf-8")
+            self.assertIn("font-size: 16px; /* ZEKniri: base font size */", text)
+            self.assertNotIn("基准大小", text)
+
+    def test_apply_font_size_missing_style_is_noop(self):
+        with TempEnv():
+            self.assertFalse(palette.apply_font_size("15px"))
+
+    def test_apply_font_size_same_value_is_noop(self):
+        with TempEnv() as t:
+            style = t.home / ".config" / "waybar" / "style.css"
+            style.parent.mkdir(parents=True, exist_ok=True)
+            style.write_text(
+                "* {\n    font-size: 15px; /* ZEKniri: base font size */\n}\n",
+                encoding="utf-8",
+            )
+            with mock.patch("zekniri.palette._reload_waybar") as reload_:
+                self.assertFalse(palette.apply_font_size("15px"))
+                reload_.assert_not_called()
 
 
 if __name__ == "__main__":

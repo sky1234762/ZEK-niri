@@ -1,16 +1,25 @@
-"""Portable template rendering — replace the ``/home/user`` placeholder with the
-real ``$HOME`` in already-deployed config files.
+"""Portable template rendering — replace deploy-time values in already
+deployed config files.
 
-Side-effect-light on purpose: pure text substitution over ``~/.config/<app>``.
-Binary files are skipped by attempting a strict UTF-8 decode.
+``/home/user`` becomes the real ``$HOME``; the base Waybar ``font-size`` line
+marked ``ZEKniri: base font size`` becomes the ``font_size`` value from
+``ZEK-niri.conf``. Side-effect-light on purpose: text substitution over
+``~/.config/<app>``. Binary files are skipped by attempting a strict UTF-8
+decode.
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
+from zekniri.config import get_config, reload_config
 from zekniri.core import get_env, log_msg
 
 PLACEHOLDER = "/home/user"
+FONT_SIZE_MARKER = "ZEKniri: base font size"
+_FONT_SIZE_RE = re.compile(
+    r"(?m)^(\s*font-size:\s*)[^;]+(;.*" + re.escape(FONT_SIZE_MARKER) + r".*)$"
+)
 _TEXT_EXTENSIONS = {
     ".kdl", ".conf", ".toml", ".json", ".jsonc", ".ini", ".css", ".sh", ".fish",
     ".lua", ".yml", ".yaml", ".txt", ".md", ".cfg", ".theme", ".desktop", ".xml",
@@ -38,14 +47,20 @@ def _render_file(path: Path, home: str) -> bool:
         content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-    if PLACEHOLDER not in content:
+    rendered = content.replace(PLACEHOLDER, home)
+    if FONT_SIZE_MARKER in rendered:
+        reload_config()
+        rendered = _FONT_SIZE_RE.sub(
+            rf"\g<1>{get_config().font_size}\g<2>", rendered, count=1
+        )
+    if rendered == content:
         return False
-    path.write_text(content.replace(PLACEHOLDER, home), encoding="utf-8")
+    path.write_text(rendered, encoding="utf-8")
     return True
 
 
 def _phase_render_templates(only_app: Optional[str] = None) -> None:
-    """Replace the placeholder across deployed config files.
+    """Render placeholders across deployed config files.
 
     ``only_app`` restricts rendering to one app; None renders the whole config
     tree. Called after every deploy and after backup restores.
