@@ -6,10 +6,11 @@ tool-data removal so a failure never orphans the user's config.
 """
 
 import sys
+import subprocess
 from typing import List
 
-from zekniri.constants import PROJECT_NAME
-from zekniri.core import get_env, log_msg, remove_path
+from zekniri.constants import PROJECT_NAME, CLI_CMD
+from zekniri.core import get_env, log_msg, remove_path, is_cli_symlink
 from zekniri.i18n import msg
 from zekniri.tui import CheckboxEntry, CheckboxList, prompt_confirm
 
@@ -43,6 +44,45 @@ def _remove_tool_data() -> None:
     log_msg("INFO", f"Removed tool data {env.nyx_dir} and {env.state_dir}")
 
 
+def _remove_installed_tools() -> bool:
+    """Stop owned services before removing their executables or records."""
+    env = get_env()
+    unit = env.config_dir / "systemd/user/zekniri-watch.service"
+    services = []
+    if unit.is_file():
+        services.append("zekniri-watch.service")
+    if (env.state_dir / "waybar-service-owned").is_file():
+        services.append("waybar.service")
+    try:
+        for service in services:
+            result = subprocess.run(
+                ["systemctl", "--user", "disable", "--now", service],
+                timeout=30, check=False,
+            )
+            if result.returncode != 0:
+                log_msg("ERROR", f"Cannot stop {service}; keeping installed tools")
+                return False
+        if unit.is_file():
+            unit.unlink()
+            result = subprocess.run(
+                ["systemctl", "--user", "daemon-reload"], timeout=30, check=False,
+            )
+            if result.returncode != 0:
+                return False
+        bin_dir = env.home / ".local/bin"
+        for name in ("ZEK-menu", "ZEK-blv", "ZEK-danmaku"):
+            (bin_dir / name).unlink(missing_ok=True)
+        if is_cli_symlink(bin_dir / CLI_CMD):
+            (bin_dir / CLI_CMD).unlink()
+        remove_path(env.data_home / "ZEKniri/zekniri")
+        # ZEKlive currently installs its helper at this fixed location.
+        (env.home / ".local/share/ZEK-blv/bilibili_live_stream").unlink(missing_ok=True)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log_msg("ERROR", f"Tool cleanup failed: {exc}")
+        return False
+    return True
+
+
 def uninstall_zekniri(target: str = "") -> bool:
     """Uninstall configs.
 
@@ -56,7 +96,9 @@ def uninstall_zekniri(target: str = "") -> bool:
     installed = _installed_items()
     if not installed:
         print(msg("uninstall_nothing"))
-        if purge_all or keep_data:
+        if purge_all:
+            if not _remove_installed_tools():
+                return False
             _remove_tool_data()
         return True
 
@@ -79,6 +121,9 @@ def uninstall_zekniri(target: str = "") -> bool:
 
     if not chosen:
         print(msg("uninstall_none_selected"))
+
+    if purge_all and not _remove_installed_tools():
+        return False
 
     protected_any = False
     for name in chosen:

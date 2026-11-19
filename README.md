@@ -103,6 +103,13 @@ memo_path = ~/Documents/notes.txt
 memo_path = ~/Documents/todo.md
 memo_path = ~/Documents
 ```
+## 1.2.0计划中！
+
+继附加菜单与多项bug,稳定性修复后，1.2新功能正在制作中，具体内容保密，请等待更新！
+
+<sub>这里贴一张我找到的好壁纸()</sub></p>
+
+![ZEKniri-壁纸新增](preview/ZEK1.2-1.3_pre.png)
 
 ## 致谢与主页
 - QQ：`1846318834` QQ(备用): `3456599262` 

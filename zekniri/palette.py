@@ -289,9 +289,15 @@ def install_watcher() -> bool:
     path = _service_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit, encoding="utf-8")
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-    subprocess.run(["systemctl", "--user", "enable", _SERVICE], check=False)
-    subprocess.run(["systemctl", "--user", "restart", _SERVICE], check=False)
+    try:
+        for args in (["daemon-reload"], ["enable", _SERVICE], ["restart", _SERVICE]):
+            result = subprocess.run(["systemctl", "--user", *args], timeout=30, check=False)
+            if result.returncode != 0:
+                log_msg("ERROR", f"Watcher setup failed: {args}")
+                return False
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log_msg("ERROR", f"Watcher setup failed: {exc}")
+        return False
     print(msg("watch_installed", str(path)), flush=True)
     return True
 

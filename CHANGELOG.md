@@ -5,6 +5,12 @@ change, natural language, only the net change versus the last release.
 
 ## [Unreleased]
 
+## [1.1.3-rc2]
+
+- Repeated `uninstall keep-data` preserves backups; `purge` stops the watcher, removes companion launchers/modules, and disables Waybar only when this installer recorded enabling it. Failed service cleanup aborts purge.
+- Deployment renders only selected app trees; rollback renders only restored apps, leaving unrelated configs and snapshots untouched.
+- Installation respects absolute XDG config/data/state/cache roots, isolates exported Pictures paths in sandbox tests, and propagates dependency/service setup failures instead of reporting success.
+
 - `ZEK-niri test` now runs in a temporary HOME sandbox: it no longer writes to the real `~/.config`, Pictures directory, or Noctalia state, prints the sandbox path, and cleans it up on exit.
 - After config deployment, the installer shows a TUI selector with every supported resolution/refresh combination per Niri output and writes the chosen modes to `~/.config/niri/config.kdl`.
 - Install flow now installs and restarts `zekniri-watch.service` (wallpaper palette + Waybar font hot reload) automatically when Waybar/Noctalia is selected.

@@ -62,8 +62,7 @@ def _render_file(path: Path, home: str) -> bool:
 def _phase_render_templates(only_app: Optional[str] = None) -> None:
     """Render placeholders across deployed config files.
 
-    ``only_app`` restricts rendering to one app; None renders the whole config
-    tree. Called after every deploy and after backup restores.
+    ``only_app`` restricts rendering to one app; None renders only repository-managed apps. Called after every deploy and after backup restores.
     """
     env = get_env()
     config_dir = env.config_dir
@@ -72,10 +71,17 @@ def _phase_render_templates(only_app: Optional[str] = None) -> None:
     if only_app is not None:
         roots = [config_dir / only_app]
     else:
-        roots = [p for p in config_dir.iterdir() if p.is_dir()] if config_dir.is_dir() else []
+        from zekniri.deploy.manifest import discover_deployable_apps
+        roots = [config_dir / name for name in discover_deployable_apps()]
 
     rendered = 0
     for root in roots:
+        if root.is_symlink() or root == env.nyx_dir:
+            continue
+        if root.is_file():
+            if _is_probably_text(root) and _render_file(root, home):
+                rendered += 1
+            continue
         if not root.is_dir():
             continue
         for path in root.rglob("*"):

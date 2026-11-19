@@ -163,7 +163,8 @@ def rollback_configs(target: str = "") -> bool:
             continue
         if not atomic_replace_item(snap_item, env.config_dir / item):
             ok = False
-    _phase_render_templates()
+        else:
+            _phase_render_templates(only_app=item)
     log_msg("INFO", f"Rolled back to {snap.name} (pre-rollback: {protect})")
     print(msg("rollback_done" if ok else "rollback_partial"))
     return ok

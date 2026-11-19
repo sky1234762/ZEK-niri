@@ -173,7 +173,8 @@ def deploy_selected_configs(
     if "noctalia" in items_to_deploy:
         disable_native_bar()
     deploy_menu()
-    _phase_render_templates()
+    for item in items_to_deploy:
+        _phase_render_templates(only_app=item)
     print(msg("copy_done"))
     return []
 
@@ -273,6 +274,7 @@ def test_deploy() -> bool:
             "XDG_STATE_HOME",
             "XDG_CACHE_HOME",
             "XDG_DATA_HOME",
+            "XDG_PICTURES_DIR",
             "ZEKNIRI_SANDBOX",
         )
     }
@@ -290,6 +292,7 @@ def test_deploy() -> bool:
                 "XDG_CACHE_HOME": str(home / ".cache"),
                 "XDG_DATA_HOME": str(home / ".local" / "share"),
                 "ZEKNIRI_SANDBOX": "1",
+                "XDG_PICTURES_DIR": str(home / "Pictures"),
             }
         )
         core._ENV = None

@@ -108,28 +108,25 @@ def enable_waybar_service() -> bool:
     if not (env.repo_dir / "install.sh").is_file():
         return False  # test/temp tree: never touch the real user manager
 
-    subprocess.run(
-        ["systemctl", "--user", "enable", "waybar.service"],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    running = False
-    if shutil.which("pgrep"):
-        running = subprocess.run(
-            ["pgrep", "-x", "waybar"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    try:
+        was_enabled = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "--quiet", "waybar.service"],
+            timeout=15, check=False,
         ).returncode == 0
-    if not running:
-        subprocess.run(
-            ["systemctl", "--user", "start", "waybar.service"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    log_msg("INFO", f"waybar.service enabled; running={running}")
+        for action in ("enable", "start"):
+            result = subprocess.run(
+                ["systemctl", "--user", action, "waybar.service"],
+                timeout=30, check=False,
+            )
+            if result.returncode != 0:
+                log_msg("ERROR", f"waybar.service {action} failed")
+                return False
+            if action == "enable" and not was_enabled:
+                env.state_dir.mkdir(parents=True, exist_ok=True)
+                (env.state_dir / "waybar-service-owned").touch()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log_msg("ERROR", f"waybar.service setup failed: {exc}")
+        return False
     return True
 
 

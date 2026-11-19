@@ -96,34 +96,16 @@ def _detect_run_mode(root_dir: Path, cache_dir: Path):
 class Environment:
     def __init__(self):
         self.home = Path(os.environ.get("HOME", str(Path.home())))
-        self.config_dir = self.home / ".config"
+        def xdg(name: str, fallback: str) -> Path:
+            raw = os.environ.get(name, "")
+            path = Path(raw) if raw else self.home / fallback
+            return path if path.is_absolute() else self.home / fallback
 
-        raw_data = os.environ.get("XDG_DATA_HOME")
-        if raw_data:
-            data_path = Path(raw_data)
-            try:
-                self.data_home = data_path if data_path.is_relative_to(self.home) else self.home / ".local/share"
-            except (ValueError, AttributeError):
-                self.data_home = self.home / ".local/share"
-        else:
-            self.data_home = self.home / ".local/share"
-
-        raw_state = os.environ.get("XDG_STATE_HOME")
-        if raw_state:
-            state_path = Path(raw_state)
-            try:
-                if state_path.is_relative_to(self.home):
-                    self.state_home = state_path
-                else:
-                    self.state_home = self.home / ".local/state"
-            except (ValueError, AttributeError):
-                self.state_home = self.home / ".local/state"
-        else:
-            self.state_home = self.home / ".local/state"
-        # Tool-owned runtime transients live under <state_home>/<PROJECT_NAME>.
+        self.config_dir = xdg("XDG_CONFIG_HOME", ".config")
+        self.data_home = xdg("XDG_DATA_HOME", ".local/share")
+        self.state_home = xdg("XDG_STATE_HOME", ".local/state")
         self.state_dir = self.state_home / PROJECT_NAME
-
-        self.cache_dir = self.home / ".cache" / PROJECT_NAME
+        self.cache_dir = xdg("XDG_CACHE_HOME", ".cache") / PROJECT_NAME
 
         current_file = Path(__file__).resolve()
         pkg_dir = current_file.parent

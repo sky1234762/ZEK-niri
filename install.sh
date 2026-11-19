@@ -15,19 +15,15 @@ RED=$'\033[1;31m'; GRN=$'\033[1;32m'; YEL=$'\033[1;33m'; BLU=$'\033[1;34m'; OFF=
 _lang_is_zh() { [[ "${LANG:-}${LC_ALL:-}" == *zh* ]]; }
 say() { if _lang_is_zh; then printf '%s' "$1"; else printf '%s' "${2:-$1}"; fi; }
 
-CACHE_DIR="$HOME/.cache/ZEKniri"
-BOOTSTRAP_URL="https://raw.githubusercontent.com/sky1234762/ZEK-niri/main/install.sh"
+# XDG paths must be absolute; keep valid custom roots, including outside HOME.
+for xdg_name in XDG_CONFIG_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME; do
+    if [[ -n "${!xdg_name:-}" && "${!xdg_name}" != /* ]]; then
+        unset "$xdg_name"
+    fi
+done
 
-# Normalize XDG variables so a sandbox HOME cannot leak into the host.
-if [ -n "${XDG_STATE_HOME:-}" ] && [[ "$XDG_STATE_HOME" != "$HOME/"* ]]; then
-    export XDG_STATE_HOME="$HOME/.local/state"
-fi
-if [ -n "${XDG_CONFIG_HOME:-}" ] && [[ "$XDG_CONFIG_HOME" != "$HOME/"* ]]; then
-    export XDG_CONFIG_HOME="$HOME/.config"
-fi
-if [ -n "${XDG_CACHE_HOME:-}" ] && [[ "$XDG_CACHE_HOME" != "$HOME/"* ]]; then
-    export XDG_CACHE_HOME="$HOME/.cache"
-fi
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ZEKniri"
+BOOTSTRAP_URL="https://raw.githubusercontent.com/sky1234762/ZEK-niri/main/install.sh"
 
 # ZEKNIRI_REPO: single-source override, never silently replaced.
 if [ -n "${ZEKNIRI_REPO:-}" ]; then

@@ -136,8 +136,8 @@ def install_configs_workflow(mode: str = "full") -> bool:
 
     if mode == "full":
         missing = get_missing_deps()
-        if missing:
-            install_selected_deps(missing)
+        if missing and not install_selected_deps(missing):
+            return False
 
     preserved: List[str] = []
     if chosen_configs:
@@ -149,11 +149,15 @@ def install_configs_workflow(mode: str = "full") -> bool:
 
     if "waybar" in chosen_configs:
         print(msg("install_step_waybar_service"))
-        enable_waybar_service()
+        if not enable_waybar_service():
+            print("waybar.service setup failed", file=sys.stderr)
+            return False
 
     if ("waybar" in chosen_configs or "noctalia" in chosen_configs) and (get_env().repo_dir / "install.sh").is_file():
         print(msg("install_step_watch_service"))
-        install_watcher()
+        if not install_watcher():
+            print("Wallpaper watcher setup failed", file=sys.stderr)
+            return False
 
     asset_result = None
     if do_assets:
@@ -203,16 +207,16 @@ def offer_overwrite_upgrade(flag: str = "") -> bool:
     return True
 
 
-def check_new_deps_post_update() -> None:
+def check_new_deps_post_update() -> bool:
     missing = get_missing_deps()
     if not missing:
-        return
+        return True
     print(msg("new_deps_detected", " ".join(missing)))
     if not sys.stdin.isatty():
-        install_selected_deps(missing)
-        return
+        return install_selected_deps(missing)
     if prompt_confirm("prompt_install_missing_deps", "y"):
-        install_selected_deps(missing)
+        return install_selected_deps(missing)
+    return False
 
 
 # --- Submenus ----------------------------------------------------------------
@@ -614,9 +618,9 @@ def main() -> None:
         sys.exit(2)
 
     if pending_flag is not None:
-        deploy_ok = offer_overwrite_upgrade(pending_flag)
-        check_new_deps_post_update()
-        print(msg("updating_done"))
+        deps_ok = pending_flag == "--no-deploy" or check_new_deps_post_update()
+        deploy_ok = deps_ok and offer_overwrite_upgrade(pending_flag)
+        print(msg("updating_done" if deploy_ok else "updating_failed"))
         if not sys.stdin.isatty():
             sys.exit(0 if deploy_ok else 1)
         press_any_key()
