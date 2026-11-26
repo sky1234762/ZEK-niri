@@ -1,0 +1,978 @@
+{
+  "en:full": {
+    "result": true,
+    "stdout": "Pre-flight summary:\n  - 3 config app(s)\n  - wallpaper pack\n  - bundled tool: ZEKlive\n  - system dependencies\n  - snapshot current configs first\n\nDeploying configs…\nDeploying wallpapers…\nEnabling Waybar autostart…\nInstalling wallpaper/font watcher…\nInstalling ZEKlive…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "full"
+        }
+      ],
+      [
+        "get_missing_deps",
+        [],
+        {}
+      ],
+      [
+        "install_selected_deps",
+        [
+          [
+            "dependency"
+          ]
+        ],
+        {}
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "niri",
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "disable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "choose_and_write_output_modes",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "full",
+          "chosen_items": [
+            "niri",
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "en:config": {
+    "result": true,
+    "stdout": "Pre-flight summary:\n  - 1 config app(s)\n\nDeploying configs…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": false,
+          "items_to_deploy": [
+            "kitty"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "kitty"
+          ],
+          "preserved_lines": [],
+          "asset_result": null,
+          "tool_result": null
+        }
+      ]
+    ]
+  },
+  "en:assets": {
+    "result": true,
+    "stdout": "Pre-flight summary:\n  - 0 config app(s)\n  - wallpaper pack\n  - snapshot current configs first\n\nDeploying wallpapers…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": null
+        }
+      ]
+    ]
+  },
+  "en:tools": {
+    "result": true,
+    "stdout": "Pre-flight summary:\n  - 0 config app(s)\n  - bundled tool: ZEKlive\n\nInstalling ZEKlive…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [],
+          "preserved_lines": [],
+          "asset_result": null,
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "en:cancel": {
+    "result": true,
+    "stdout": "Cancelled.\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ]
+    ]
+  },
+  "en:empty": {
+    "result": true,
+    "stdout": "Cancelled.\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ]
+    ]
+  },
+  "en:deploy_fail": {
+    "result": false,
+    "stdout": "Pre-flight summary:\n  - 1 config app(s)\n\nDeploying configs…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": false,
+          "items_to_deploy": [
+            "kitty"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "kitty"
+          ],
+          "preserved_lines": [],
+          "failed_items": [
+            "kitty"
+          ]
+        }
+      ]
+    ]
+  },
+  "en:service_fail": {
+    "result": true,
+    "stdout": "Pre-flight summary:\n  - 2 config app(s)\n  - wallpaper pack\n  - bundled tool: ZEKlive\n  - snapshot current configs first\n\nDeploying configs…\nDeploying wallpapers…\nEnabling Waybar autostart…\nInstalling wallpaper/font watcher…\nInstalling ZEKlive…\n",
+    "stderr": "Waybar autostart setup failed; configs and wallpapers are still deployed.\nWallpaper watcher setup failed; palette/font hot reload will be unavailable.\n",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "enable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "en:dependency_fail": {
+    "result": false,
+    "stdout": "Pre-flight summary:\n  - 1 config app(s)\n  - system dependencies\n\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "full"
+        }
+      ],
+      [
+        "get_missing_deps",
+        [],
+        {}
+      ],
+      [
+        "install_selected_deps",
+        [
+          [
+            "dependency"
+          ]
+        ],
+        {}
+      ]
+    ]
+  },
+  "en:update": {
+    "result": true,
+    "stdout": "",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "discover_config_items",
+        [],
+        {}
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "waybar",
+            "noctalia"
+          ]
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "disable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "install",
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "zh:full": {
+    "result": true,
+    "stdout": "部署前清单：\n  - 3 个配置应用\n  - 壁纸包\n  - 内置工具：ZEKlive\n  - 系统依赖\n  - 先快照当前配置\n\n正在部署配置…\n正在部署壁纸…\n正在设置 Waybar 自启…\n正在安装壁纸/字号监听服务…\n正在安装 ZEKlive…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "full"
+        }
+      ],
+      [
+        "get_missing_deps",
+        [],
+        {}
+      ],
+      [
+        "install_selected_deps",
+        [
+          [
+            "dependency"
+          ]
+        ],
+        {}
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "niri",
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "disable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "choose_and_write_output_modes",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "full",
+          "chosen_items": [
+            "niri",
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "zh:config": {
+    "result": true,
+    "stdout": "部署前清单：\n  - 1 个配置应用\n\n正在部署配置…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": false,
+          "items_to_deploy": [
+            "kitty"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "kitty"
+          ],
+          "preserved_lines": [],
+          "asset_result": null,
+          "tool_result": null
+        }
+      ]
+    ]
+  },
+  "zh:assets": {
+    "result": true,
+    "stdout": "部署前清单：\n  - 0 个配置应用\n  - 壁纸包\n  - 先快照当前配置\n\n正在部署壁纸…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": null
+        }
+      ]
+    ]
+  },
+  "zh:tools": {
+    "result": true,
+    "stdout": "部署前清单：\n  - 0 个配置应用\n  - 内置工具：ZEKlive\n\n正在安装 ZEKlive…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [],
+          "preserved_lines": [],
+          "asset_result": null,
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "zh:cancel": {
+    "result": true,
+    "stdout": "已取消。\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ]
+    ]
+  },
+  "zh:empty": {
+    "result": true,
+    "stdout": "已取消。\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ]
+    ]
+  },
+  "zh:deploy_fail": {
+    "result": false,
+    "stdout": "部署前清单：\n  - 1 个配置应用\n\n正在部署配置…\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": false,
+          "items_to_deploy": [
+            "kitty"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "kitty"
+          ],
+          "preserved_lines": [],
+          "failed_items": [
+            "kitty"
+          ]
+        }
+      ]
+    ]
+  },
+  "zh:service_fail": {
+    "result": true,
+    "stdout": "部署前清单：\n  - 2 个配置应用\n  - 壁纸包\n  - 内置工具：ZEKlive\n  - 先快照当前配置\n\n正在部署配置…\n正在部署壁纸…\n正在设置 Waybar 自启…\n正在安装壁纸/字号监听服务…\n正在安装 ZEKlive…\n",
+    "stderr": "Waybar 自启设置失败，配置和壁纸仍已部署。\n壁纸监听服务设置失败，配色/字体热重载暂不可用。\n",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "config"
+        }
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_log": []
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "enable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "deploy_zeklive",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "config",
+          "chosen_items": [
+            "waybar",
+            "noctalia"
+          ],
+          "preserved_lines": [],
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          },
+          "tool_result": {
+            "name": "",
+            "copied": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  },
+  "zh:dependency_fail": {
+    "result": false,
+    "stdout": "部署前清单：\n  - 1 个配置应用\n  - 系统依赖\n\n",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "run_master_component_menu",
+        [],
+        {
+          "mode": "full"
+        }
+      ],
+      [
+        "get_missing_deps",
+        [],
+        {}
+      ],
+      [
+        "install_selected_deps",
+        [
+          [
+            "dependency"
+          ]
+        ],
+        {}
+      ]
+    ]
+  },
+  "zh:update": {
+    "result": true,
+    "stdout": "",
+    "stderr": "",
+    "events": [
+      [
+        "deploy_runtime_conf",
+        [],
+        {}
+      ],
+      [
+        "discover_config_items",
+        [],
+        {}
+      ],
+      [
+        "deploy_selected_configs",
+        [],
+        {
+          "do_backup": true,
+          "items_to_deploy": [
+            "waybar",
+            "noctalia"
+          ]
+        }
+      ],
+      [
+        "deploy_assets",
+        [],
+        {}
+      ],
+      [
+        "enable_waybar_service",
+        [],
+        {}
+      ],
+      [
+        "_service_setup_available",
+        [],
+        {}
+      ],
+      [
+        "install_watcher",
+        [],
+        {}
+      ],
+      [
+        "disable_native_bar",
+        [],
+        {}
+      ],
+      [
+        "render_completion_screen",
+        [],
+        {
+          "mode": "install",
+          "asset_result": {
+            "copied": 0,
+            "skipped": 0,
+            "destination": ""
+          }
+        }
+      ]
+    ]
+  }
+}

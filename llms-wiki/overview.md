@@ -37,13 +37,37 @@ the toml. `discover_manifest_apps()` merges both.
 
 - **install** — atomic reconcile from repo → `~/.config`, then imperative
   side-effects (placeholder render, assets). `install full` also checks deps.
-  Install also enables `waybar.service` (systemd user) and forces Noctalia's
-  native `[bar.*] enabled` settings off in an existing runtime `settings.toml`.
-  It also installs and restarts `zekniri-watch.service` for palette/font hot reload.
+  Install wallpapers first, then tries to enable `waybar.service` (systemd user)
+  and install/restart `zekniri-watch.service`; optional service failures warn
+  but do not abort the install. Waybar's service is reset from a failed
+  `start-limit`, restarted, and verified active. Niri startup has a fallback to
+  run Waybar/watcher directly when systemd is unavailable. Noctalia's native
+  `[bar.*] enabled` is turned off only after Waybar is verified running; a
+  Noctalia-only install keeps the native bar on. The state seed keeps the
+  native bar enabled and ships empty wallpaper paths instead of author paths.
   After deployment it shows a TUI selector with every supported resolution/refresh
   combination per Niri output and writes the chosen modes to `~/.config/niri/config.kdl`.
 - **update** — refresh the repo (`git pull`), then re-exec and deploy on the new
   code. Presets, if any, live in the repo, so a pull updates their source too.
+
+## Install execution and compatibility
+
+`cli.py` retains the existing menus, translated output, commands and completion UI.
+`workflow.py` owns the immutable installation plan and the shared asset/service
+execution used by installation and upgrades. Dependency failures stop before
+configuration deployment; optional wallpaper/service failures retain the current
+warning-and-continue policy. Native-bar selection still depends on verified Waybar
+startup. `tests/fixtures/install_workflow.json` records English/Chinese workflow
+output and operation order for 20 scenarios from before the refactor.
+
+The Bash bootstrap validates all runtime modules before execution. Rebuilding a
+cache clones and validates into a temporary sibling first, retains the previous
+checkout under `.zekniri-previous.*`, and restores it if replacement fails. A failed
+clone never deletes the existing cache. Package installation invalidates dependency
+query caches so subsequent checks see newly installed packages.
+
+Noctalia configuration deployment does not install or manage third-party plugins;
+separately installed plugins remain untouched.
 
 ## Physical isolation
 

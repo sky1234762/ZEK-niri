@@ -29,7 +29,7 @@ from zekniri.deploy.tools import (
     menu_present,
     zeklive_present,
 )
-from zekniri.deploy.noctalia import disable_native_bar
+from zekniri.deploy.noctalia import disable_native_bar, enable_native_bar
 from zekniri.deploy.deploy import (
     discover_config_items,
     _phase_atomic_deployment,
@@ -57,6 +57,7 @@ __all__ = [
     "menu_present",
     "enable_waybar_service",
     "disable_native_bar",
+    "enable_native_bar",
     "ToolDeployResult",
     "load_manifest",
     "load_manifest_for",

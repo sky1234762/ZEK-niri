@@ -41,6 +41,7 @@ from zekniri.deps import (
     run_dep_menu_loop,
     run_optional_apps_menu_loop,
 )
+from zekniri.deploy.noctalia import disable_native_bar, enable_native_bar
 from zekniri.doctor import generate_bug_report, run_doctor, show_logs
 from zekniri.i18n import msg
 from zekniri.network import safe_git_pull
@@ -111,100 +112,32 @@ def _phase_preflight_check(
     print()
 
 
-def install_configs_workflow(mode: str = "full") -> bool:
-    """Full execution pipeline for configs, dependencies, and assets."""
-    deploy_runtime_conf()
-    if sys.stdin.isatty():
-        chosen = run_master_component_menu(mode=mode)
-        if not chosen:
-            print(msg("install_cancelled"))
-            return True
-        chosen_configs = chosen["configs"]
-        do_assets = chosen["assets"]
-        do_zeklive = chosen["zeklive"]
-        do_backup = chosen["backup"]
-        if not chosen_configs and not do_assets and not do_zeklive:
-            print(msg("install_cancelled"))
-            return True
+def _service_setup_available() -> bool:
+    env = get_env()
+    return env.run_mode == "system" or (env.repo_dir / "install.sh").is_file()
+
+
+def _apply_native_bar_policy(chosen_configs: List[str], waybar_ok: bool) -> None:
+    if "noctalia" not in chosen_configs:
+        return
+    if "waybar" in chosen_configs and waybar_ok:
+        disable_native_bar()
     else:
-        chosen_configs = discover_config_items()
-        do_assets = assets_present()
-        do_zeklive = zeklive_present()
-        do_backup = False
+        # No Waybar choice, or Waybar could not be verified: keep/restore the
+        # native bar so the user is not left without any bar.
+        enable_native_bar()
 
-    _phase_preflight_check(mode, chosen_configs, do_assets, do_zeklive, do_backup)
 
-    if mode == "full":
-        missing = get_missing_deps()
-        if missing and not install_selected_deps(missing):
-            return False
-
-    preserved: List[str] = []
-    if chosen_configs:
-        print(msg("install_step_configs"))
-        failed = deploy_selected_configs(do_backup=do_backup, items_to_deploy=chosen_configs, preserved_log=preserved)
-        if failed:
-            render_completion_screen(mode=mode, chosen_items=chosen_configs, preserved_lines=preserved, failed_items=failed)
-            return False
-
-    if "waybar" in chosen_configs:
-        print(msg("install_step_waybar_service"))
-        if not enable_waybar_service():
-            print("waybar.service setup failed", file=sys.stderr)
-            return False
-
-    if ("waybar" in chosen_configs or "noctalia" in chosen_configs) and (get_env().repo_dir / "install.sh").is_file():
-        print(msg("install_step_watch_service"))
-        if not install_watcher():
-            print("Wallpaper watcher setup failed", file=sys.stderr)
-            return False
-
-    asset_result = None
-    if do_assets:
-        print(msg("install_step_assets"))
-        asset_result = deploy_assets()
-
-    tool_result = None
-    if do_zeklive:
-        print(msg("install_step_zeklive"))
-        tool_result = deploy_zeklive()
-
-    if "niri" in chosen_configs and sys.stdin.isatty():
-        choose_and_write_output_modes()
-
-    render_completion_screen(
-        mode=mode,
-        chosen_items=chosen_configs,
-        preserved_lines=preserved,
-        asset_result=asset_result,
-        tool_result=tool_result,
-    )
-    return True
+def install_configs_workflow(mode: str = "full") -> bool:
+    """Keep the public entry point while the shared engine executes the plan."""
+    from zekniri.workflow import install
+    return install(sys.modules[__name__], mode)
 
 
 def offer_overwrite_upgrade(flag: str = "") -> bool:
-    """Update flow: pull happened in the parent, now deploy the new code."""
-    deploy_runtime_conf()
-    if flag == "--no-deploy":
-        return True
-    if not sys.stdin.isatty() or flag in ("--force", "--deploy"):
-        failed = deploy_selected_configs(do_backup=bool(flag))
-        if failed:
-            render_completion_screen(mode="install", failed_items=failed)
-            return False
-        asset_result = deploy_assets()
-        render_completion_screen(mode="install", asset_result=asset_result)
-        return True
-
-    items = [
-        MenuItem(label=msg("overwrite_opt1")),
-        MenuItem(label=msg("overwrite_opt2"), style="subtle"),
-    ]
-    choice = Menu("overwrite_title", items, hint_key="submenu_hint").run()
-    if choice == 0:
-        return install_configs_workflow("full")
-    print(msg("log_config_deploy_skipped"))
-    return True
+    """Apply updated sources through the same service/deployment policy."""
+    from zekniri.workflow import upgrade
+    return upgrade(sys.modules[__name__], flag)
 
 
 def check_new_deps_post_update() -> bool:

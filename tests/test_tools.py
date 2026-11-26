@@ -1,4 +1,6 @@
+import subprocess
 import unittest
+from unittest import mock
 
 from tests.utils import TempEnv
 from zekniri.deploy.tools import deploy_zeklive, enable_waybar_service, zeklive_present
@@ -36,6 +38,23 @@ class ToolsTest(unittest.TestCase):
     def test_enable_waybar_service_skips_in_temp_tree(self):
         with TempEnv():
             self.assertFalse(enable_waybar_service())
+
+    def test_enable_waybar_service_resets_failed_and_verifies(self):
+        with TempEnv() as t:
+            (t.home / "install.sh").touch()
+            calls = []
+
+            def fake_run(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            with mock.patch("zekniri.deploy.tools.shutil.which", return_value="/usr/bin/systemctl"), \
+                    mock.patch("zekniri.deploy.tools.subprocess.run", side_effect=fake_run):
+                self.assertTrue(enable_waybar_service())
+
+            self.assertIn(["systemctl", "--user", "reset-failed", "waybar.service"], calls)
+            self.assertIn(["systemctl", "--user", "restart", "waybar.service"], calls)
+            self.assertIn(["systemctl", "--user", "is-active", "--quiet", "waybar.service"], calls)
 
 
 if __name__ == "__main__":

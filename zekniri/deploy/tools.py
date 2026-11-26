@@ -9,6 +9,7 @@ dependency script. Each tool is a separate, opt-in install option.
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -97,23 +98,55 @@ def deploy_menu() -> ToolDeployResult:
     return result
 
 
+def _service_active(name: str) -> bool:
+    try:
+        return subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", name],
+            timeout=10,
+            check=False,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def enable_waybar_service() -> bool:
-    """Enable the distro Waybar user service and start it when not running."""
+    """Enable the distro Waybar user service and (re)start it.
+
+    A previous invalid Waybar CSS can leave the unit in systemd's
+    ``start-limit-hit`` state. Clear that first, restart with the freshly
+    deployed config, and verify the unit is actually active instead of trusting
+    ``systemctl start``'s return code alone.
+    """
     env = get_env()
     if os.environ.get("ZEKNIRI_SANDBOX"):
         return False
     if shutil.which("systemctl") is None:
         log_msg("INFO", "systemctl not found; skipping waybar.service")
         return False
-    if not (env.repo_dir / "install.sh").is_file():
+    if env.run_mode != "system" and not (env.repo_dir / "install.sh").is_file():
         return False  # test/temp tree: never touch the real user manager
+
+    # This marker also lets Niri's startup fallback know that Waybar was chosen.
+    try:
+        env.state_dir.mkdir(parents=True, exist_ok=True)
+        (env.state_dir / "waybar-enabled").touch()
+    except OSError:
+        pass
 
     try:
         was_enabled = subprocess.run(
             ["systemctl", "--user", "is-enabled", "--quiet", "waybar.service"],
             timeout=15, check=False,
         ).returncode == 0
-        for action in ("enable", "start"):
+
+        # Clear failed/start-limit state left by an older install; ignore the
+        # return code because a clean unit returns non-zero here on some distros.
+        subprocess.run(
+            ["systemctl", "--user", "reset-failed", "waybar.service"],
+            timeout=15, check=False,
+        )
+
+        for action in ("enable", "restart"):
             result = subprocess.run(
                 ["systemctl", "--user", action, "waybar.service"],
                 timeout=30, check=False,
@@ -124,10 +157,16 @@ def enable_waybar_service() -> bool:
             if action == "enable" and not was_enabled:
                 env.state_dir.mkdir(parents=True, exist_ok=True)
                 (env.state_dir / "waybar-service-owned").touch()
+
+        for _ in range(10):
+            if _service_active("waybar.service"):
+                return True
+            time.sleep(0.1)
+        log_msg("ERROR", "waybar.service did not become active")
+        return False
     except (OSError, subprocess.TimeoutExpired) as exc:
         log_msg("ERROR", f"waybar.service setup failed: {exc}")
         return False
-    return True
 
 
 def deploy_zeklive() -> ToolDeployResult:

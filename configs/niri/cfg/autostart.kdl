@@ -2,7 +2,8 @@
 // https://github.com/YaLTeR/niri/wiki/Configuration:-Miscellaneous#spawn-sh-at-startup
 
     spawn-at-startup "noctalia"
-    // spawn-at-startup "waybar"
+    // 启动后备隐藏能源！
+    spawn-at-startup "sh" "-c" "[ -f \"${XDG_STATE_HOME:-$HOME/.local/state}/ZEKniri/waybar-enabled\" ] || exit 0; systemctl --user start waybar.service 2>/dev/null || exec waybar"
     spawn-at-startup "mark-shot"
-    // ZEKniri 的壁纸配色监听由 systemd 用户服务管理（`ZEK-niri watch install`），
-    // 不再在这里重复 spawn，避免两个 watcher 抢同一把锁。
+    // 启动后备隐藏能源！
+    spawn-at-startup "sh" "-c" "[ -f \"${XDG_STATE_HOME:-$HOME/.local/state}/ZEKniri/watcher-enabled\" ] || exit 0; systemctl --user start zekniri-watch.service 2>/dev/null || exec \"$HOME/.local/bin/ZEK-niri\" watch"

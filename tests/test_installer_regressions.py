@@ -76,6 +76,66 @@ class InstallerRegressions(unittest.TestCase):
                 self.assertEqual(os.environ['XDG_PICTURES_DIR'], external)
                 self.assertFalse(Path(external).exists())
 
+    def test_install_watcher_resets_failed_and_verifies(self):
+        with TempEnv() as t:
+            (t.home / 'install.sh').touch()
+            calls = []
+
+            def fake_run(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            with patch('zekniri.palette.shutil.which', return_value='/usr/bin/systemctl'), \
+                 patch('zekniri.palette.subprocess.run', side_effect=fake_run):
+                self.assertTrue(install_watcher())
+
+            self.assertIn(['systemctl', '--user', 'reset-failed', 'zekniri-watch.service'], calls)
+            self.assertIn(['systemctl', '--user', 'restart', 'zekniri-watch.service'], calls)
+            self.assertIn(['systemctl', '--user', 'is-active', '--quiet', 'zekniri-watch.service'], calls)
+
+    def test_noctalia_only_install_keeps_native_bar(self):
+        with TempEnv() as t:
+            app = t.home / 'configs' / 'noctalia'
+            app.mkdir(parents=True)
+            (app / 'conf').write_text('x', encoding='utf-8')
+            state = t.env.state_home / 'noctalia' / 'settings.toml'
+            state.parent.mkdir(parents=True)
+            state.write_text('[bar.default]\nenabled = false\n', encoding='utf-8')
+            with patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
+                 patch('zekniri.cli.render_completion_screen'):
+                self.assertTrue(cli.install_configs_workflow('config'))
+            self.assertIn('enabled = true', state.read_text(encoding='utf-8'))
+
+    def test_native_bar_disabled_only_after_waybar_success(self):
+        with TempEnv() as t:
+            for name in ('noctalia', 'waybar'):
+                app = t.home / 'configs' / name
+                app.mkdir(parents=True)
+                (app / 'conf').write_text('x', encoding='utf-8')
+            state = t.env.state_home / 'noctalia' / 'settings.toml'
+            state.parent.mkdir(parents=True)
+            state.write_text('[bar.default]\nenabled = true\n', encoding='utf-8')
+            with patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
+                 patch('zekniri.cli.enable_waybar_service', return_value=True), \
+                 patch('zekniri.cli.render_completion_screen'):
+                self.assertTrue(cli.install_configs_workflow('config'))
+            self.assertIn('enabled = false', state.read_text(encoding='utf-8'))
+
+    def test_native_bar_restored_when_waybar_fails(self):
+        with TempEnv() as t:
+            for name in ('noctalia', 'waybar'):
+                app = t.home / 'configs' / name
+                app.mkdir(parents=True)
+                (app / 'conf').write_text('x', encoding='utf-8')
+            state = t.env.state_home / 'noctalia' / 'settings.toml'
+            state.parent.mkdir(parents=True)
+            state.write_text('[bar.default]\nenabled = false\n', encoding='utf-8')
+            with patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
+                 patch('zekniri.cli.enable_waybar_service', return_value=False), \
+                 patch('zekniri.cli.render_completion_screen'):
+                self.assertTrue(cli.install_configs_workflow('config'))
+            self.assertIn('enabled = true', state.read_text(encoding='utf-8'))
+
     def test_dependency_failure_aborts_before_deploy(self):
         with TempEnv(), patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
              patch('zekniri.cli.get_missing_deps', return_value=['missing']), \
@@ -125,14 +185,26 @@ class InstallerRegressions(unittest.TestCase):
             self.assertTrue(launcher.exists())
             self.assertTrue(t.env.state_dir.exists())
 
-    def test_install_service_failure_returns_failure(self):
+    def test_install_service_failure_is_nonfatal(self):
         with TempEnv() as t:
             self.seed(t, 'waybar')
             with patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
                  patch('zekniri.cli.enable_waybar_service', return_value=False), \
                  patch('zekniri.cli.render_completion_screen') as completion:
-                self.assertFalse(cli.install_configs_workflow('config'))
-                completion.assert_not_called()
+                self.assertTrue(cli.install_configs_workflow('config'))
+                completion.assert_called_once()
+
+    def test_service_failure_still_deploys_wallpapers(self):
+        with TempEnv() as t:
+            self.seed(t, 'waybar')
+            wallpapers = t.env.assets_src / 'wallpapers'
+            wallpapers.mkdir(parents=True)
+            (wallpapers / 'a.jpg').write_text('x', encoding='utf-8')
+            with patch('zekniri.cli.sys.stdin.isatty', return_value=False), \
+                 patch('zekniri.cli.enable_waybar_service', return_value=False), \
+                 patch('zekniri.cli.render_completion_screen'):
+                self.assertTrue(cli.install_configs_workflow('config'))
+            self.assertTrue((t.home / 'Pictures' / 'wallpaper' / 'a.jpg').is_file())
 
     def test_update_dependency_failure_is_propagated(self):
         with TempEnv(), patch('zekniri.cli.sys.stdin.isatty', return_value=False), \

@@ -34,7 +34,7 @@ def is_dep_installed(name: str) -> bool:
     """Best-effort check: pacman package, then a binary of the same name."""
     if not name:
         return True
-    if _get_pacman_installed() and name in _get_pacman_installed():
+    if name in _get_pacman_installed():
         return True
     if shutil.which(name):
         return True
@@ -78,6 +78,8 @@ def install_selected_deps(packages: List[str]) -> bool:
                     timeout=1800, check=False)
     ok = res is not None and res.returncode == 0
     if ok:
+        global _PACMAN_INSTALLED_CACHE
+        _PACMAN_INSTALLED_CACHE = None
         print(msg("deps_installed"))
     else:
         print(msg("deps_failed"))

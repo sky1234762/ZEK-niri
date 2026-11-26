@@ -25,7 +25,7 @@ order = [ "default", "bar" ]
     capsule = true
     center = [ "workspaces", "bluetooth", "control-center", "session", "battery" ]
     color = "primary"
-    enabled = false
+    enabled = true
     end = [ "audio_visualizer", "tray", "group:g3" ]
     font_family = "JetBrainsMono Nerd Font"
     font_weight = 300
@@ -269,7 +269,7 @@ enabled = [ "tadomika_ari/w-engine", "noctalia/wallhaven", "imjustdoingmypart/ni
     name = "community"
 
 [shell]
-avatar_path = "/home/zek/图片/436575C7DEC7A6083E0C1539966113E1.jpg"
+avatar_path = ""
 niri_overview_type_to_launch_enabled = true
 
     [shell.animation]
@@ -292,17 +292,14 @@ source = "custom"
 wallpaper_scheme = "soft"
 
 [wallpaper]
-directory = "/home/zek/图片/wallpaper"
+directory = ""
 transition_on_startup = true
 
     [wallpaper.default]
-    path = "/home/zek/图片/wallpaper/Image_1788066106777_803.jpg"
+    path = ""
 
     [wallpaper.last]
-    path = "/home/zek/图片/wallpaper/Image_1788066106777_803.jpg"
-
-    [wallpaper.monitors.eDP-1]
-    path = "/home/zek/图片/wallpaper/Image_1788066106777_803.jpg"
+    path = ""
 
 [widget.audio_visualizer]
 bands = 128

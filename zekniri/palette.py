@@ -9,6 +9,7 @@ Noctalia has no wallpaper-change hook, so the switch is driven by the
 """
 
 import fcntl
+import os
 import re
 import shutil
 import subprocess
@@ -268,12 +269,36 @@ def _service_path() -> Path:
     return get_env().config_dir / "systemd" / "user" / _SERVICE
 
 
+def _watcher_active() -> bool:
+    try:
+        return subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", _SERVICE],
+            timeout=10,
+            check=False,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def install_watcher() -> bool:
     """Install + (re)start a systemd user service running ``ZEK-niri watch``."""
+    env = get_env()
+    if os.environ.get("ZEKNIRI_SANDBOX"):
+        return False
+    if env.run_mode != "system" and not (env.repo_dir / "install.sh").is_file():
+        return False
+
+    # Used by Niri's startup fallback when systemd is unavailable.
+    try:
+        env.state_dir.mkdir(parents=True, exist_ok=True)
+        (env.state_dir / "watcher-enabled").touch()
+    except OSError:
+        pass
+
     if shutil.which("systemctl") is None:
         print(msg("watch_no_systemd"), flush=True)
         return False
-    exe = get_env().home / ".local" / "bin" / CLI_CMD
+    exe = env.home / ".local" / "bin" / CLI_CMD
     unit = (
         "[Unit]\n"
         "Description=ZEKniri wallpaper palette & Waybar font watcher\n"
@@ -287,14 +312,22 @@ def install_watcher() -> bool:
         "WantedBy=graphical-session.target\n"
     )
     path = _service_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(unit, encoding="utf-8")
     try:
-        for args in (["daemon-reload"], ["enable", _SERVICE], ["restart", _SERVICE]):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(unit, encoding="utf-8")
+    except OSError as exc:
+        log_msg("ERROR", f"Watcher setup failed: {exc}")
+        return False
+    try:
+        # Clear a previous failed/start-limit state before restarting.
+        for args in (["daemon-reload"], ["reset-failed", _SERVICE], ["enable", _SERVICE], ["restart", _SERVICE]):
             result = subprocess.run(["systemctl", "--user", *args], timeout=30, check=False)
-            if result.returncode != 0:
+            if result.returncode != 0 and args[0] != "reset-failed":
                 log_msg("ERROR", f"Watcher setup failed: {args}")
                 return False
+        if not _watcher_active():
+            log_msg("ERROR", "zekniri-watch.service did not become active")
+            return False
     except (OSError, subprocess.TimeoutExpired) as exc:
         log_msg("ERROR", f"Watcher setup failed: {exc}")
         return False

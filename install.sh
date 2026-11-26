@@ -71,10 +71,10 @@ engine_is_complete() {
     local target_dir="$1"
     local module
     [ -f "$target_dir/install.sh" ] || return 1
-    for module in __init__ __main__ cli constants core deps doctor i18n menu_app menu_config menu_fullscreen menu_instance network outputs tui; do
+    for module in __init__ __main__ cli config constants core deps doctor i18n menu_app menu_config menu_fullscreen menu_instance network outputs tui workflow; do
         [ -f "$target_dir/zekniri/$module.py" ] || return 1
     done
-    for module in __init__ atomic assets deploy manifest noctalia templates; do
+    for module in __init__ atomic assets deploy manifest noctalia templates tools; do
         [ -f "$target_dir/zekniri/deploy/$module.py" ] || return 1
     done
     for module in __init__ backup uninstall; do
@@ -82,6 +82,32 @@ engine_is_complete() {
     done
     [ -d "$target_dir/configs" ] && [ -d "$target_dir/assets" ]
 }
+
+# Validate a complete replacement before moving the old cache out of the way.
+# Failed downloads leave the previous checkout intact for inspection/retry.
+replace_cached_engine() (
+    local staging old_cache="" parent
+    parent="$(dirname -- "$CACHE_DIR")"
+    mkdir -p -- "$parent" || return 1
+    staging="$(mktemp -d "$parent/.zekniri-bootstrap.XXXXXX")" || return 1
+    trap 'rm -rf -- "$staging"' EXIT
+    git_clone_timeout "$REPO_URL" "$staging/repo" || return 1
+    engine_is_complete "$staging/repo" || return 1
+    if [[ -e "$CACHE_DIR" || -L "$CACHE_DIR" ]]; then
+        old_cache="$(mktemp -d "$parent/.zekniri-previous.XXXXXX")" || return 1
+        if ! mv -- "$CACHE_DIR" "$old_cache/repo"; then
+            rmdir -- "$old_cache"
+            return 1
+        fi
+    fi
+    if ! mv -- "$staging/repo" "$CACHE_DIR"; then
+        if [[ -n "$old_cache" ]]; then
+            mv -- "$old_cache/repo" "$CACHE_DIR"
+            rmdir -- "$old_cache"
+        fi
+        return 1
+    fi
+)
 
 main() {
     # 1. Never run as root.
@@ -144,11 +170,10 @@ main() {
         printf '%s[!] %s%s\n' "$YEL" \
             "$(say "缓存源码不完整，正在重建…" "Cached source is incomplete; rebuilding it…")" \
             "$OFF" >&2
-        rm -rf "$CACHE_DIR"
-        git_clone_timeout "$REPO_URL" "$CACHE_DIR" || exit 1
+        replace_cached_engine || exit 1
     elif [ ! -d "$CACHE_DIR/.git" ]; then
         printf '%s:: %s%s\n' "$BLU" "$(say "拉取仓库至缓存 ($CACHE_DIR)…" "Pulling repository to cache ($CACHE_DIR)…")" "$OFF" >&2
-        git_clone_timeout "$REPO_URL" "$CACHE_DIR" || exit 1
+        replace_cached_engine || exit 1
     else
         printf '%s:: %s%s\n' "$BLU" "$(say "更新缓存仓库…" "Updating cache repository…")" "$OFF" >&2
         if [ -t 2 ]; then

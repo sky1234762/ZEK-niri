@@ -51,10 +51,12 @@ back to `<Pictures>/wallpaper`, resolved from `$XDG_PICTURES_DIR` →
 localised names like `~/图片` work without `xdg-user-dir`. Multiple wallpaper
 files in a directory are always deployed in full.
 
-After copying, `deploy_assets()` also rewrites Noctalia's `[wallpaper] directory`
-in `~/.local/state/noctalia/settings.toml` when it is empty or still the
-Pictures root, so the pack shows up directly in Noctalia's wallpaper picker. A
-custom folder is left untouched.
+After copying, `deploy_assets()` repairs Noctalia's `[wallpaper] directory`,
+`[wallpaper.default]`, `[wallpaper.last]`, and monitor-specific paths in
+`~/.local/state/noctalia/settings.toml`. Empty/missing paths (including seed
+paths from another machine) are pointed at the deployed pack; a still-valid
+custom wallpaper or custom folder is preserved. Running Noctalia is reloaded
+and, when a missing current wallpaper was filled, switched to that image.
 
 `ZEK-niri palette` reads noctalia's current wallpaper (`[wallpaper.last].path`,
 then `default`, then `monitors.*`, from `~/.local/state/noctalia/settings.toml`),
@@ -94,9 +96,9 @@ Start it once as a systemd user service (persists across sessions):
 
     spawn-at-startup "sh" "-c" "exec \"$HOME/.local/bin/ZEK-niri\" watch"
 
-The shipped waybar wallpaper module triggers it right after a switch. `--wait`
-keeps polling until noctalia's async wallpaper IPC lands, so the *new*
-wallpaper's palette is applied:
+The shipped waybar wallpaper module triggers it right after a right-click
+random switch. `--wait` keeps polling until noctalia's async wallpaper IPC
+lands, so the *new* wallpaper's palette is applied:
 
     "on-click-right": "noctalia msg wallpaper-random; ZEK-niri palette --wait"
-    "on-click-middle": "noctalia msg wallpaper-next; ZEK-niri palette --wait"
+    "on-click-middle": "noctalia msg desktop-widgets-edit"   # 打开桌面小组件编辑器

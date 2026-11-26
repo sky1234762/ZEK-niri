@@ -27,7 +27,6 @@
 - **直播工具加入** — 现已加入并集成我常用的直播工具，具体使用方法看[ZEK-blv](https://github.com/sky1234762/ZEK-blv)
 - **独立 ZEKniri 菜单** — 有很多appimage文件但是每次打开文件管理器很麻烦？不用担心，按下 Ctrl和你的鼠标中键！（现已支持文本文件多路径）
 - **一键挖掘你的显示器潜力** — 还在苦恼于不会设置niri配置文件启用高刷？现在可以在安装程序一键部署！
-
 ## 配置结构
 
 ```
@@ -36,6 +35,7 @@ ZEKniri/
 ├── zekniri/                 引擎（纯标准库，无需pip依赖）
 │   ├── core.py             Environment、flock 单实例锁、日志
 │   ├── cli.py              命令分发 + 交互面板
+│   ├── workflow.py         安装计划 · 安装/升级共用执行流程
 │   ├── deploy/             配置替换 · manifest · 模板渲染 · 壁纸
 │   ├── state/              快照 · 卸载
 │   └── ...
@@ -57,8 +57,8 @@ ZEKniri/
 ```bash
 git clone https://github.com/sky1234762/ZEK-niri.git ~/ZEKniri
 cd ~/ZEKniri
-./install.sh              
-./install.sh install full 
+./install.sh
+./install.sh install full
 ```
 
 ## 安装完后的界面
@@ -112,11 +112,11 @@ memo_path = ~/Documents
 ![ZEKniri-壁纸新增](preview/ZEK1.2-1.3_pre.png)
 
 ## 致谢与主页
-- QQ：`1846318834` QQ(备用): `3456599262` 
+- QQ：`1846318834` QQ(备用): `3456599262`
 - [bilibili/Zer05ky凌空-ZEK](https://space.bilibili.com/575667990/upload/video) 我的b站主页
 - [bilibili/Zer05ky](https://space.bilibili.com/1168962291?spm_id_from=333.1387.follow.user_card.click) 我的直播间
 - [SHORiN-KiWATA/shorin-arch-setup](https://github.com/SHORiN-KiWATA/shorin-arch-setup)  waybar配置来源
 - [ech678/Nyxniri](https://github.com/ech678/Nyxuri) 安装程序的灵感与借鉴来源
 - [KaguyaMao/Tsukuyomi](https://github.com/KaguyaMao/Tsukuyomi) 使用的agent
 - [bilibili/锂琉鉄谷LiSFeDCo](https://space.bilibili.com/1683768632) 可爱吉祥物
-- bug与问题反馈群号: `1128905094` （你也许可以从这获取到我发布的预设喔）
+- bug与问题反馈群号: `1128905094`

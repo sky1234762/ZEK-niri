@@ -21,7 +21,6 @@ from zekniri.tui import read_key, show_logo, raw_input_mode, _drain_pending, ent
 from zekniri.deploy.atomic import atomic_replace_item
 from zekniri.deploy.assets import AssetDeployResult, assets_present, deploy_assets
 from zekniri.deploy.tools import ToolDeployResult, deploy_menu
-from zekniri.deploy.noctalia import disable_native_bar
 from zekniri.deploy.manifest import discover_deployable_apps, load_manifest
 from zekniri.deploy.templates import _phase_render_templates
 
@@ -141,7 +140,13 @@ def _phase_atomic_deployment(
                     except OSError:
                         pass
 
-        _deploy_state_files(item, src, manifest.state)
+        try:
+            _deploy_state_files(item, src, manifest.state)
+        except OSError as exc:
+            failed_items.append(item)
+            print(msg("log_deploy_config_failed", item), file=sys.stderr)
+            log_msg("ERROR", f"State file deployment failed for {item}: {exc}")
+            continue
 
         print(msg("log_deploy_config_item", item))
         log_msg("INFO", f"Deployed config ~/.config/{item}")
@@ -170,8 +175,6 @@ def deploy_selected_configs(
     if failed_items:
         print(msg("deploy_failed", ", ".join(failed_items)), file=sys.stderr)
         return failed_items
-    if "noctalia" in items_to_deploy:
-        disable_native_bar()
     deploy_menu()
     for item in items_to_deploy:
         _phase_render_templates(only_app=item)

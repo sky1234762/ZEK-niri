@@ -117,6 +117,29 @@ class AssetsTest(unittest.TestCase):
             deploy_assets()
             self.assertIn(f'directory = "{custom}"', state.read_text(encoding="utf-8"))
 
+    def test_repairs_seed_paths_from_another_home(self):
+        with TempEnv() as t:
+            self._seed(t)
+            old = "/home/old/图片/wallpaper"
+            state = self._seed_noctalia_state(
+                t,
+                "[wallpaper]\n"
+                f'directory = "{old}"\n'
+                "\n    [wallpaper.default]\n"
+                f'    path = "{old}/old.jpg"\n'
+                "\n    [wallpaper.last]\n"
+                f'    path = "{old}/old.jpg"\n'
+                "\n    [wallpaper.monitors.eDP-1]\n"
+                f'    path = "{old}/old.jpg"\n',
+            )
+            deploy_assets()
+            text = state.read_text(encoding="utf-8")
+            dest = t.home / "Pictures" / "wallpaper"
+            self.assertNotIn("/home/old", text)
+            self.assertIn(f'directory = "{dest}"', text)
+            self.assertIn(f'path = "{dest / "a.jpg"}"', text)
+            self.assertEqual(text.count(f'path = "{dest / "a.jpg"}"'), 3)
+
     def test_inserts_noctalia_directory_when_missing(self):
         with TempEnv() as t:
             self._seed(t)
